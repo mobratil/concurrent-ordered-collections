@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <LangVersion>latest</LangVersion>
+    <!-- xUnit1031: Task.WaitAll in the concurrency tests is intentional (deterministic join after a timed phase).
+         xUnit2013: asserting an exact .Count is deliberate here (now that the type implements ICollection). -->
+    <NoWarn>$(NoWarn);xUnit1031;xUnit2013</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/LockFreeSkipList/LockFreeSkipList.csproj" />
+    <ProjectReference Include="../../src/BPlusTree/BPlusTree.csproj" />
+  </ItemGroup>
+
+</Project>

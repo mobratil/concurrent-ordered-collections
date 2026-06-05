@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="src/LockFreeSkipList/LockFreeSkipList.csproj" />
+  <Project Path="src/BPlusTree/BPlusTree.csproj" />
+  <Project Path="tests/LockFreeSkipList.Tests/LockFreeSkipList.Tests.csproj" />
+  <Project Path="bench/LockFreeSkipList.Bench/LockFreeSkipList.Bench.csproj" />
+</Solution>

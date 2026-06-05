@@ -1,0 +1,11 @@
+bin/
+obj/
+*.user
+.vs/
+.idea/
+java/*.class
+/tmp/
+
+.DS_Store
+viz/__pycache__/
+*.png
