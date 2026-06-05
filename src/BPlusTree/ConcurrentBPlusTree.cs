@@ -80,15 +80,21 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
 
     private readonly IComparer<TKey> _cmp;
     private readonly int _max;
-    private readonly int _min;          // merge trigger: a leaf with fewer keys is "underfull"
+    private readonly int _min;          // merge target: a merge cascade packs survivors back up to >= _min
+    private readonly int _mergeBelow;   // merge TRIGGER: only attempt a merge once a leaf drops this low.
+                                        // Kept well below _min (and the split point) so normal churn never
+                                        // oscillates across it -> no split/merge thrash, no upper-node lock storm.
     private volatile Node _root;
     private readonly StripedCounter _count = new();
 
-    public ConcurrentBPlusTree(int order = 64, IComparer<TKey>? comparer = null)
+    public ConcurrentBPlusTree(int order = 64, IComparer<TKey>? comparer = null, int mergeBelow = -1)
     {
         if (order < 3) throw new ArgumentOutOfRangeException(nameof(order), "order must be >= 3");
         _max = order;
         _min = order / 2;
+        // Merge TRIGGER (perf<->memory knob): lower = less split/merge thrash (better concurrent throughput)
+        // but leaves run emptier (more memory). <=0 selects the default.
+        _mergeBelow = Math.Max(1, mergeBelow > 0 ? mergeBelow : order / 3);
         _cmp = comparer ?? Comparer<TKey>.Default;
         _root = NewLeaf();
     }
@@ -135,16 +141,25 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
         for (; ; ) // restart
         {
             Node cur = _root;
-            if (!cur.TryReadVersion(out long v)) continue;           // node locked -> restart
-            if (cur != _root) continue;                              // root advanced -> restart
+            if (!cur.TryReadVersion(out long v)) continue;   // node locked -> restart
+            if (cur != _root) continue;                       // root advanced -> restart
 
             while (cur is Internal ind)
             {
                 int ci = ChildIndex(ind.Keys, ind.Count, key);
                 Node child = ind.Children[ci];
-                if (!ind.Validate(v)) goto restart;                  // child pointer + routing consistent
-                if (!child.TryReadVersion(out long cv)) goto restart;
-                if (!ind.Validate(v)) goto restart;                  // parent unchanged through the child read
+                if (!ind.Validate(v)) goto restart;       // routing read consistent
+                // Fix B: if the child is briefly write-locked, SPIN on it (cheap) rather than re-descending
+                // from the root (expensive). Bail to restart only if the PARENT changes while we wait — then
+                // our routing may be stale. Mirrors the B-link reads; kills the descent-into-locked-leaf storm.
+                long cv;
+                var sw = new SpinWait();
+                while (!child.TryReadVersion(out cv))
+                {
+                    sw.SpinOnce();
+                    if (!ind.Validate(v)) goto restart;
+                }
+                if (!ind.Validate(v)) goto restart;       // parent unchanged through the child read
                 cur = child; v = cv;
             }
 
@@ -153,7 +168,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
             int i = Find(leaf.Keys, cnt, key);
             bool found = i >= 0;
             TValue val = found ? leaf.Values[i] : default!;
-            if (!leaf.Validate(v)) goto restart;                     // leaf unchanged during our read
+            if (!leaf.Validate(v)) goto restart;              // leaf unchanged during our read
             value = val;
             return found;
 
@@ -388,7 +403,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
             leaf.Count--;
             Array.Clear(leaf.Keys, leaf.Count, 1);
             Array.Clear(leaf.Values, leaf.Count, 1);
-            bool underfull = leaf.Count < _min;
+            bool underfull = leaf.Count < _mergeBelow;   // lazier trigger -> no thrash (fix A)
             leaf.WriteUnlock();
             _count.Decrement();
             if (underfull) TryMergeUnderfullLeaf(key);    // best-effort space reclamation (sibling merge)
@@ -414,7 +429,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
             leaf.Count--;
             Array.Clear(leaf.Keys, leaf.Count, 1);
             Array.Clear(leaf.Values, leaf.Count, 1);
-            bool underfull = leaf.Count < _min;
+            bool underfull = leaf.Count < _mergeBelow;   // lazier trigger -> no thrash (fix A)
             leaf.WriteUnlock();
             _count.Decrement();
             if (underfull) TryMergeUnderfullLeaf(key);    // best-effort space reclamation (sibling merge)

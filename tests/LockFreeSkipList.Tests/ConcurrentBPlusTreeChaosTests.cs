@@ -132,8 +132,10 @@ public class ConcurrentBPlusTreeChaosTests
 
         var (_, _, leavesAfter, fillAfter) = t.DebugStats();
         _out.WriteLine($"order={order} scattered-drain: {leavesFull} leaves @ {fillFull:F0}% -> {leavesAfter} leaves @ {fillAfter:F0}% for {t.Count} keys");
-        // Merge keeps occupancy up: well above the ~10% live fraction that lazy-delete-without-merge gives.
-        Assert.True(fillAfter > 33, $"merge didn't coalesce: fill only {fillAfter:F1}%");
+        // Merge still coalesces well above the ~10% live fraction that lazy-delete-without-merge gives.
+        // (The trigger is now order/3 — lazier than half-full, to avoid split/merge thrash — so fill sits
+        // a bit lower than before but the structure still tracks the live set, not the build-time peak.)
+        Assert.True(fillAfter > 25, $"merge didn't coalesce: fill only {fillAfter:F1}%");
         Assert.True(leavesAfter < leavesFull / 3, $"expected far fewer leaves, got {leavesAfter}/{leavesFull}");
     }
 
