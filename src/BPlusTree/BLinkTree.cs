@@ -73,12 +73,14 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
     private bool _onlineMerge = false;
 
     /// <summary>EXPERIMENTAL — off by default. When on, an underfull delete triggers an online half-dead
-    /// sibling merge so memory tracks the live set automatically (no manual Compact()). The half-dead
-    /// protocol is correct sequentially and under DISJOINT-key concurrency, but has a rare unresolved
-    /// structural race under heavy OVERLAPPING-key contention (many threads splitting/merging around the
-    /// same keys) that can drift the structure. For guaranteed correctness leave this off and reclaim
-    /// with <see cref="Compact"/>; the OLC <c>ConcurrentBPlusTree</c> is the option for automatic online
-    /// reclamation. Kept here as a documented record of the attempt.</summary>
+    /// sibling merge so memory tracks the live set automatically (no manual Compact()). Correct
+    /// sequentially and under DISJOINT-key concurrency. Under heavy OVERLAPPING-key contention it had
+    /// multiple subtle races: one was root-caused and fixed (the "fully-linked" gate below — never merge a
+    /// node mid-split, which used to leave a stale parent separator that misrouted inserts), but at least
+    /// one structural-drift race remains. Concurrent merge on a B-link tree is genuinely hard (Lehman-Yao
+    /// omitted deletion; Postgres's took years to harden) and is NOT considered correct here. For
+    /// guaranteed reclamation leave this off and use <see cref="Compact"/>; for automatic online
+    /// reclamation use the OLC <c>ConcurrentBPlusTree</c>. Kept as a documented record of the attempt.</summary>
     public bool EnableOnlineMerge { get => _onlineMerge; set => _onlineMerge = value; }
 
     public BLinkTree(int order = 64, IComparer<TKey>? comparer = null)
@@ -266,6 +268,18 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
             { X.WriteUnlock(); P.WriteUnlock(); return; }
             R.WriteLock();
             int combined = X is Leaf ? X.Count + R.Count : X.Count + 1 + R.Count;
+            // FULLY-LINKED gate (the real fix): only merge X and R when BOTH match the parent's separators
+            // exactly — i.e. neither has a pending split whose separator hasn't been posted yet. If we
+            // merged an R mid-split, X would inherit R's lowered HighKey while the parent kept R's old
+            // high separator, leaving a window where an insert routes a key into the wrong leaf. Requiring
+            // X.HighKey == P.Keys[ci] and R.HighKey == P.Keys[ci+1] (stable: P, X, R all locked) closes it.
+            bool linked = X.HasHighKey && _cmp.Compare(X.HighKey, P.Keys[ci]) == 0;
+            if (linked)
+            {
+                if (ci + 1 < P.Count) linked = R.HasHighKey && _cmp.Compare(R.HighKey, P.Keys[ci + 1]) == 0;
+                else linked = R.HasHighKey == P.HasHighKey && (!R.HasHighKey || _cmp.Compare(R.HighKey, P.HighKey) == 0);
+            }
+            if (!linked) { R.WriteUnlock(); X.WriteUnlock(); P.WriteUnlock(); return; }
             // Self-validating gate: only commit a merge whose result is provably key-ordered. Under heavy
             // shared-key split/merge collision the X.Right==R link can momentarily be ahead of the
             // ordering invariant; rather than reason about every interleaving, we refuse any merge that
