@@ -840,6 +840,8 @@ static class Program
             MeasureMem($"bptree-st-{order}", keys, () => new BPlusTree<long, long>(order), (d, k) => d.TryAdd(k, k));
         foreach (int order in new[] { 64, 256 })
             MeasureMem($"bptree-conc-{order}", keys, () => new ConcurrentBPlusTree<long, long>(order), (d, k) => d.TryAdd(k, k));
+        foreach (int order in new[] { 64, 256 })
+            MeasureMem($"blink-{order}", keys, () => new BLinkTree<long, long>(order), (d, k) => d.TryAdd(k, k));
         foreach (int k in new[] { 32, 64 })
             MeasureMem($"csd-{k}", keys, () => new ConcurrentSortedDictionary<long, long>(k), (d, key) => d.TryAdd(key, key));
         Console.WriteLine();
@@ -850,13 +852,14 @@ static class Program
     // surviving keys, not the build-time peak. Compared against CSD (which merges -> bounded) and the
     // skip list (per-node, no bloat). bytes/entry is normalised to the SURVIVING entries.
     static void MeasureMemAfterDrain<T>(string name, long[] keys, bool[] keep, int keepCount,
-        Func<T> create, Action<T, long> insert, Action<T, long> remove) where T : class
+        Func<T> create, Action<T, long> insert, Action<T, long> remove, Action<T>? finish = null) where T : class
     {
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
         long before = GC.GetTotalMemory(true);
         T s = create();
         for (int i = 0; i < keys.Length; i++) insert(s, keys[i]);
         for (int i = 0; i < keys.Length; i++) if (!keep[i]) remove(s, keys[i]);   // drain to the survivors
+        finish?.Invoke(s);                                                        // e.g. a compaction pass
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
         long after = GC.GetTotalMemory(true);
         GC.KeepAlive(s);
@@ -880,6 +883,10 @@ static class Program
             foreach (int order in new[] { 64, 256 })
                 MeasureMemAfterDrain($"bptree-conc-{order}", keys, keep, keepCount, () => new ConcurrentBPlusTree<long, long>(order),
                     (d, k) => d.TryAdd(k, k), (d, k) => d.TryRemove(k, out _));
+            MeasureMemAfterDrain("blink-64 (lazy)", keys, keep, keepCount, () => new BLinkTree<long, long>(64),
+                (d, k) => d.TryAdd(k, k), (d, k) => d.TryRemove(k, out _));
+            MeasureMemAfterDrain("blink-64 (compacted)", keys, keep, keepCount, () => new BLinkTree<long, long>(64),
+                (d, k) => d.TryAdd(k, k), (d, k) => d.TryRemove(k, out _), finish: d => d.Compact());
             foreach (int k in new[] { 32, 64 })
                 MeasureMemAfterDrain($"csd-{k}", keys, keep, keepCount, () => new ConcurrentSortedDictionary<long, long>(k),
                     (d, key) => d.TryAdd(key, key), (d, key) => d.TryRemove(key));
@@ -922,6 +929,11 @@ static class Program
         foreach (int order in new[] { 16, 32, 64, 128, 256 })
             RunOne($"bptree-{order}", size, lookups, keys,
                 () => new BPlusTree<long, long>(order),
+                (d, k) => d.TryAdd(k, k), (d, k) => d.TryGetValue(k, out _), csv, ci);
+
+        foreach (int order in new[] { 64, 256 })
+            RunOne($"blink-{order}", size, lookups, keys,
+                () => new BLinkTree<long, long>(order),
                 (d, k) => d.TryAdd(k, k), (d, k) => d.TryGetValue(k, out _), csv, ci);
 
         foreach (int k in new[] { 32, 64 })

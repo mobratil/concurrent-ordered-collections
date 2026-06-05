@@ -40,6 +40,7 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
         internal TKey HighKey = default!;   // exclusive upper bound of this node's range
         internal bool HasHighKey;           // false on the rightmost node of each level (covers +inf)
         internal Node? Right;               // right-link to the same-level sibling
+        internal volatile bool Dead;        // half-dead: merged away, kept alive for forwarding until GC reclaims it
 
         internal void WriteLock()
         {
@@ -64,15 +65,27 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
 
     private readonly IComparer<TKey> _cmp;
     private readonly int _max;
+    private readonly int _min;              // online-merge trigger: a node below this is "underfull"
     private volatile Node _root;
     private readonly object _growLock = new();
     private long _count;
-    private long _deletedSinceCompact;      // lazy-delete tombstone pressure; drives when to Compact()
+    private long _deletedSinceCompact;      // lazy-delete tombstone pressure (only relevant if online merge is off)
+    private bool _onlineMerge = false;
+
+    /// <summary>EXPERIMENTAL — off by default. When on, an underfull delete triggers an online half-dead
+    /// sibling merge so memory tracks the live set automatically (no manual Compact()). The half-dead
+    /// protocol is correct sequentially and under DISJOINT-key concurrency, but has a rare unresolved
+    /// structural race under heavy OVERLAPPING-key contention (many threads splitting/merging around the
+    /// same keys) that can drift the structure. For guaranteed correctness leave this off and reclaim
+    /// with <see cref="Compact"/>; the OLC <c>ConcurrentBPlusTree</c> is the option for automatic online
+    /// reclamation. Kept here as a documented record of the attempt.</summary>
+    public bool EnableOnlineMerge { get => _onlineMerge; set => _onlineMerge = value; }
 
     public BLinkTree(int order = 64, IComparer<TKey>? comparer = null)
     {
         if (order < 3) throw new ArgumentOutOfRangeException(nameof(order), "order must be >= 3");
         _max = order;
+        _min = order / 2;
         _cmp = comparer ?? Comparer<TKey>.Default;
         _root = NewLeaf();
     }
@@ -184,17 +197,141 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
         }
     }
 
+    // Descend, lock the leaf, move-right under the lock, AND skip a half-dead leaf (merged away): re-descend
+    // so we land on the live node that absorbed it. Returns a locked, live leaf that owns `key`'s range.
+    private Leaf LockLeafForWrite(TKey key)
+    {
+        for (; ; )
+        {
+            var leaf = (Leaf)DescendTo(key, 0);
+            leaf.WriteLock();
+            while (MoveRight(leaf, key)) { var r = (Leaf)leaf.Right!; leaf.WriteUnlock(); r.WriteLock(); leaf = r; }
+            if (leaf.Dead) { leaf.WriteUnlock(); continue; }   // merged away while we descended -> retry
+            return leaf;
+        }
+    }
+
+    private static void RemoveChild(Internal n, int ci)
+    {
+        int c = n.Count;
+        int sep = ci > 0 ? ci - 1 : 0;
+        Array.Copy(n.Keys, sep + 1, n.Keys, sep, c - 1 - sep);
+        Array.Copy(n.Children, ci + 1, n.Children, ci, c - ci);
+        n.Count = c - 1;
+        Array.Clear(n.Keys, c - 1, 1);
+        Array.Clear(n.Children, c, 1);
+    }
+
+    // =====================================================================
+    //  Online concurrent merge (half-dead protocol) — automatic, pause-free reclamation.
+    //
+    //  When a delete leaves a node underfull we merge its RIGHT sibling R into it (so we never have to
+    //  hunt for a left sibling). We briefly latch ONLY the parent P + the pair X,R (not a chain), and
+    //  only when X.Right == R == P.Children[ci+1] — i.e. they're the same parent's adjacent, fully-linked
+    //  children with no pending split between them. That single gate sidesteps B-link's parent-staleness.
+    //
+    //  Half-dead R: after X absorbs R, R keeps its keys + Right-link + Prev intact and is flagged Dead.
+    //  A reader already on R finds its key there or moves right; a writer that locks R sees Dead and
+    //  re-descends (P no longer routes to R). X.HighKey/Right/Count are published atomically under X's
+    //  lock, so a version-validating reader sees all-old (-> move right to the still-live R) or all-new
+    //  (-> find in X) — never a missed key. GC reclaims R once no thread references it (the .NET win).
+    //
+    //  Propagates up: removing R drops a child from P; if P underfulls we merge P with its right sibling
+    //  the same way, up to a single-child root collapse.
+    // =====================================================================
+    private void MergeOnline(TKey key)
+    {
+        int childLevel = 0;
+        for (; ; )
+        {
+            if (_root.Level <= childLevel) return;             // the underfull node is (under) the root -> done
+            // re-descend to the parent level, lock it, move-right + skip a dead parent
+            Internal P;
+            for (; ; )
+            {
+                P = (Internal)DescendTo(key, childLevel + 1);
+                P.WriteLock();
+                while (MoveRight(P, key)) { var pr = (Internal)P.Right!; P.WriteUnlock(); pr.WriteLock(); P = pr; }
+                if (!P.Dead) break;
+                P.WriteUnlock();
+            }
+
+            int ci = ChildIndex(P.Keys, P.Count, key);
+            if (ci >= P.Count) { P.WriteUnlock(); return; }    // X is P's rightmost child -> no same-parent right sibling
+            Node X = P.Children[ci], R = P.Children[ci + 1];
+
+            X.WriteLock();
+            // X must still be underfull, alive, and adjacent to R with no pending split (X.Right == R)
+            if (X.Dead || X.Count >= _min || !ReferenceEquals(X.Right, R))
+            { X.WriteUnlock(); P.WriteUnlock(); return; }
+            R.WriteLock();
+            int combined = X is Leaf ? X.Count + R.Count : X.Count + 1 + R.Count;
+            // Self-validating gate: only commit a merge whose result is provably key-ordered. Under heavy
+            // shared-key split/merge collision the X.Right==R link can momentarily be ahead of the
+            // ordering invariant; rather than reason about every interleaving, we refuse any merge that
+            // would misorder keys and let a later delete retry. This keeps the structure always-sorted.
+            bool safe;
+            if (X is Leaf xlc)
+            {
+                var rlc = (Leaf)R;
+                safe = xlc.Count == 0 || rlc.Count == 0 || _cmp.Compare(xlc.Keys[xlc.Count - 1], rlc.Keys[0]) < 0;
+            }
+            else
+            {
+                var xic = (Internal)X; var ric = (Internal)R; TKey sep = P.Keys[ci];
+                safe = (xic.Count == 0 || _cmp.Compare(xic.Keys[xic.Count - 1], sep) < 0)
+                    && (ric.Count == 0 || _cmp.Compare(sep, ric.Keys[0]) < 0);
+            }
+            if (R.Dead || combined > _max || !safe)
+            { R.WriteUnlock(); X.WriteUnlock(); P.WriteUnlock(); return; }
+
+            if (X is Leaf xl)
+            {
+                var rl = (Leaf)R;
+                var rRight = (Leaf?)rl.Right;
+                if (rRight != null) rRight.WriteLock();
+                int lc = xl.Count, rc = rl.Count;
+                Array.Copy(rl.Keys, 0, xl.Keys, lc, rc);
+                Array.Copy(rl.Values, 0, xl.Values, lc, rc);
+                xl.HighKey = rl.HighKey; xl.HasHighKey = rl.HasHighKey;
+                xl.Right = rRight;
+                xl.Count = lc + rc;                            // publish count last
+                if (rRight != null) { rRight.Prev = xl; rRight.WriteUnlock(); }
+                rl.Dead = true;                                // keys/Right/Prev kept intact for forwarding
+            }
+            else
+            {
+                var xi = (Internal)X; var ri = (Internal)R;
+                int lc = xi.Count, rc = ri.Count;
+                xi.Keys[lc] = P.Keys[ci];                      // pull the separator down between the halves
+                Array.Copy(ri.Keys, 0, xi.Keys, lc + 1, rc);
+                Array.Copy(ri.Children, 0, xi.Children, lc + 1, rc + 1);
+                xi.HighKey = ri.HighKey; xi.HasHighKey = ri.HasHighKey;
+                xi.Right = ri.Right;
+                xi.Count = lc + 1 + rc;
+                ri.Dead = true;                                // children stay shared with X -> descents forward correctly
+            }
+
+            RemoveChild(P, ci + 1);                            // drop R's separator + child from the parent
+            bool collapseRoot = ReferenceEquals(P, _root) && P.Count == 0;
+            Node? newRoot = collapseRoot ? P.Children[0] : null;
+            bool pUnderfull = !collapseRoot && !ReferenceEquals(P, _root) && P.Count < _min;
+            int pLevel = P.Level;
+
+            R.WriteUnlock();
+            X.WriteUnlock();
+            if (collapseRoot) _root = newRoot!;               // publish new root while holding old root's lock
+            P.WriteUnlock();
+
+            if (!pUnderfull) return;
+            childLevel = pLevel;                              // P lost a child and is underfull -> merge P up
+        }
+    }
+
     private bool Insert(TKey key, TValue value, bool onlyIfAbsent)
     {
         if (key == null) throw new ArgumentNullException(nameof(key));
-        var leaf = (Leaf)DescendTo(key, 0);
-        leaf.WriteLock();
-        // move-right under the lock (the leaf may have split since we read it)
-        while (MoveRight(leaf, key))
-        {
-            var r = (Leaf)leaf.Right!;
-            leaf.WriteUnlock(); r.WriteLock(); leaf = r;
-        }
+        var leaf = LockLeafForWrite(key);
 
         int idx = Find(leaf.Keys, leaf.Count, key);
         if (idx >= 0)
@@ -310,6 +447,7 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
                 var pr = (Internal)parent.Right!;
                 parent.WriteUnlock(); pr.WriteLock(); parent = pr;
             }
+            if (parent.Dead) { parent.WriteUnlock(); continue; }   // parent merged away -> re-descend to its absorber
 
             int ci = ChildIndex(parent.Keys, parent.Count, sepKey);
             InsertIntoInternal(parent, ci, sepKey, right);
@@ -364,9 +502,11 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
         leaf.Count--;
         Array.Clear(leaf.Keys, leaf.Count, 1);
         Array.Clear(leaf.Values, leaf.Count, 1);
+        bool underfull = leaf.Count < _min;
         leaf.WriteUnlock();
         Interlocked.Decrement(ref _count);
         Interlocked.Increment(ref _deletedSinceCompact);
+        if (underfull && _onlineMerge) MergeOnline(key);    // online half-dead merge -> automatic reclamation
         return true;
     }
 
@@ -376,9 +516,7 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
     private bool TryRemoveIf(TKey key, TValue expected, out TValue removed)
     {
         if (key == null) throw new ArgumentNullException(nameof(key));
-        var leaf = (Leaf)DescendTo(key, 0);
-        leaf.WriteLock();
-        while (MoveRight(leaf, key)) { var r = (Leaf)leaf.Right!; leaf.WriteUnlock(); r.WriteLock(); leaf = r; }
+        var leaf = LockLeafForWrite(key);
         int i = Find(leaf.Keys, leaf.Count, key);
         if (i < 0 || !EqualityComparer<TValue>.Default.Equals(leaf.Values[i], expected)) { leaf.WriteUnlock(); removed = default!; return false; }
         removed = leaf.Values[i];
@@ -387,9 +525,11 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
         leaf.Count--;
         Array.Clear(leaf.Keys, leaf.Count, 1);
         Array.Clear(leaf.Values, leaf.Count, 1);
+        bool underfull = leaf.Count < _min;
         leaf.WriteUnlock();
         Interlocked.Decrement(ref _count);
         Interlocked.Increment(ref _deletedSinceCompact);
+        if (underfull && _onlineMerge) MergeOnline(key);    // online half-dead merge -> automatic reclamation
         return true;
     }
 
@@ -399,9 +539,7 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
     private bool DoReplace(TKey key, TValue newValue, bool hasComparison, TValue comparison)
     {
         if (key == null) throw new ArgumentNullException(nameof(key));
-        var leaf = (Leaf)DescendTo(key, 0);
-        leaf.WriteLock();
-        while (MoveRight(leaf, key)) { var r = (Leaf)leaf.Right!; leaf.WriteUnlock(); r.WriteLock(); leaf = r; }
+        var leaf = LockLeafForWrite(key);
         int i = Find(leaf.Keys, leaf.Count, key);
         if (i < 0) { leaf.WriteUnlock(); return false; }
         if (hasComparison && !EqualityComparer<TValue>.Default.Equals(leaf.Values[i], comparison)) { leaf.WriteUnlock(); return false; }
@@ -875,6 +1013,7 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
 
     private void ValidateNode(Node node, bool hasLo, TKey lo, bool hasHi, TKey hi, ref long leafTotal)
     {
+        if (node.Dead) throw new InvalidOperationException($"DEAD node reachable in structure (level {node.Level}, count {node.Count})");
         for (int i = 0; i < node.Count; i++)
         {
             if (i > 0 && _cmp.Compare(node.Keys[i - 1], node.Keys[i]) >= 0)
