@@ -93,8 +93,9 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
         _root = NewLeaf();
     }
 
-    public int Count => (int)Math.Min(int.MaxValue, _count.Sum());
-    public bool IsEmpty => _count.Sum() == 0;
+    // Sum() is a weakly-consistent striped read (LongAdder semantics) -> can momentarily be < 0 mid-churn; clamp.
+    public int Count { get { long c = _count.Sum(); return c <= 0 ? 0 : c >= int.MaxValue ? int.MaxValue : (int)c; } }
+    public bool IsEmpty => _count.Sum() <= 0;
 
     private Leaf NewLeaf() => new() { Keys = new TKey[_max + 1], Values = new TValue[_max + 1] };
     private Internal NewInternal() => new() { Keys = new TKey[_max + 1], Children = new Node[_max + 2] };
