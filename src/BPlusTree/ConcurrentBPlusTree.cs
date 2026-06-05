@@ -82,7 +82,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
     private readonly int _max;
     private readonly int _min;          // merge trigger: a leaf with fewer keys is "underfull"
     private volatile Node _root;
-    private long _count;
+    private readonly StripedCounter _count = new();
 
     public ConcurrentBPlusTree(int order = 64, IComparer<TKey>? comparer = null)
     {
@@ -93,8 +93,8 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
         _root = NewLeaf();
     }
 
-    public int Count => (int)Math.Min(int.MaxValue, Interlocked.Read(ref _count));
-    public bool IsEmpty => Interlocked.Read(ref _count) == 0;
+    public int Count => (int)Math.Min(int.MaxValue, _count.Sum());
+    public bool IsEmpty => _count.Sum() == 0;
 
     private Leaf NewLeaf() => new() { Keys = new TKey[_max + 1], Values = new TValue[_max + 1] };
     private Internal NewInternal() => new() { Keys = new TKey[_max + 1], Children = new Node[_max + 2] };
@@ -230,7 +230,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
                 if (idx >= 0) { if (!onlyIfAbsent) leaf.Values[idx] = value; added = false; }
                 else { InsertIntoLeaf(leaf, ~idx, key, value); added = true; }
                 leaf.WriteUnlock();
-                if (added) Interlocked.Increment(ref _count);
+                if (added) _count.Increment();
                 return added;
             }
 
@@ -283,7 +283,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
         }
 
         for (int i = 0; i < hc; i++) held[i].WriteUnlock();
-        if (added) Interlocked.Increment(ref _count);
+        if (added) _count.Increment();
         return added;
     }
 
@@ -389,7 +389,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
             Array.Clear(leaf.Values, leaf.Count, 1);
             bool underfull = leaf.Count < _min;
             leaf.WriteUnlock();
-            Interlocked.Decrement(ref _count);
+            _count.Decrement();
             if (underfull) TryMergeUnderfullLeaf(key);    // best-effort space reclamation (sibling merge)
             return true;
         }
@@ -415,7 +415,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
             Array.Clear(leaf.Values, leaf.Count, 1);
             bool underfull = leaf.Count < _min;
             leaf.WriteUnlock();
-            Interlocked.Decrement(ref _count);
+            _count.Decrement();
             if (underfull) TryMergeUnderfullLeaf(key);    // best-effort space reclamation (sibling merge)
             return true;
         }
@@ -957,7 +957,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
     public void Clear()
     {
         _root = NewLeaf();
-        Interlocked.Exchange(ref _count, 0);
+        _count.Set(0);
     }
 
     public IComparer<TKey> Comparer => _cmp;
@@ -1256,7 +1256,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
     {
         int leafDepth = -1, leafTotal = 0;
         ValidateNode(_root, 0, false, default!, false, default!, ref leafDepth, ref leafTotal);
-        long cnt = Interlocked.Read(ref _count);
+        long cnt = _count.Sum();
         if (leafTotal != cnt) throw new InvalidOperationException($"Count mismatch: tree holds {leafTotal}, _count={cnt}");
 
         Node n = _root;

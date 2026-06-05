@@ -41,6 +41,12 @@ public sealed class LockFreeSkipListDictionary<TKey, TValue>
     // The current top-left index node. Volatile: grows as the structure gets taller.
     private volatile HeadIndex _head;
 
+    // Running size. Lea's ConcurrentSkipListMap deliberately has no count field (size() is O(n)) to avoid
+    // a single-atomic write hotspot; a LongAdder-style striped counter gives O(stripes) Count WITHOUT that
+    // contention. Bumped at the exactly-once CAS winners: insert commit (DoPut) and value->null (DoRemove,
+    // TryRemoveFirst). Weakly consistent under concurrency, exact when quiescent.
+    private readonly StripedCounter _count = new();
+
     public LockFreeSkipListDictionary() : this(Comparer<TKey>.Default) { }
 
     public LockFreeSkipListDictionary(IComparer<TKey> comparer)
@@ -347,6 +353,7 @@ public sealed class LockFreeSkipListDictionary<TKey, TValue>
             }
         }
     inserted:
+        _count.Increment();          // exactly-once: only one thread's CasNext links z
         AddIndexLevels(z, key);
         previous = default!;
         return true;
@@ -464,6 +471,7 @@ public sealed class LockFreeSkipListDictionary<TKey, TValue>
                     goto notFound;
 
                 if (!n.CasValue(v, null)) break;      // logically delete; lost race -> retry
+                _count.Decrement();                   // exactly-once: only one thread wins the value->null CAS
                 if (!n.AppendMarker(f) || !b.CasNext(n, f))
                 {
                     FindNode(key);                    // couldn't splice cleanly -> let FindNode help
@@ -748,18 +756,14 @@ public sealed class LockFreeSkipListDictionary<TKey, TValue>
         var baseNode = new Node(default!, BaseHeader, null);
         var fresh = new HeadIndex(baseNode, null, null, 1);
         Interlocked.Exchange(ref _head, fresh);
+        _count.Set(0);                               // quiescent reset (Clear is not linearizable vs concurrent writers)
     }
 
-    /// <summary>O(n) snapshot count of live mappings (matches ConcurrentSkipListMap.size() being non-constant).</summary>
+    /// <summary>Count of live mappings via the striped counter — O(stripes), not O(n). Weakly consistent
+    /// under concurrency (like ConcurrentSkipListMap.size(), it is not an atomic snapshot); exact when quiescent.</summary>
     public int Count
     {
-        get
-        {
-            long count = 0;
-            for (Node? n = FindFirst(); n != null; n = NextLiveNode(n))
-                count++;
-            return count >= int.MaxValue ? int.MaxValue : (int)count;
-        }
+        get { long c = _count.Sum(); return c <= 0 ? 0 : c >= int.MaxValue ? int.MaxValue : (int)c; }
     }
 
     public bool TryGetFirst(out KeyValuePair<TKey, TValue> entry)
@@ -944,6 +948,7 @@ public sealed class LockFreeSkipListDictionary<TKey, TValue>
             if (v == null) { n.HelpDelete(b, f); continue; }
             if (ReferenceEquals(v, n)) continue;           // marker — skip
             if (!n.CasValue(v, null)) continue;            // lost race; retry
+            _count.Decrement();                            // exactly-once: only one thread wins the value->null CAS
             if (!n.AppendMarker(f) || !b.CasNext(n, f))
                 FindNode(n.Key);                           // help finish + prune index
             else
