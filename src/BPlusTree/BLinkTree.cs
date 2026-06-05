@@ -68,8 +68,8 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
     private readonly int _min;              // online-merge trigger: a node below this is "underfull"
     private volatile Node _root;
     private readonly object _growLock = new();
-    private long _count;
-    private long _deletedSinceCompact;      // lazy-delete tombstone pressure (only relevant if online merge is off)
+    private readonly StripedCounter _count = new();             // LongAdder-style: no single-cache-line write hotspot
+    private readonly StripedCounter _deletedSinceCompact = new();   // lazy-delete tombstone pressure (only relevant if online merge is off)
     private bool _onlineMerge = false;
 
     /// <summary>EXPERIMENTAL — off by default. When on, an underfull delete triggers an online half-dead
@@ -92,8 +92,8 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
         _root = NewLeaf();
     }
 
-    public int Count => (int)Math.Min(int.MaxValue, Interlocked.Read(ref _count));
-    public bool IsEmpty => Interlocked.Read(ref _count) == 0;
+    public int Count => (int)Math.Min(int.MaxValue, _count.Sum());
+    public bool IsEmpty => _count.Sum() == 0;
     public IComparer<TKey> Comparer => _cmp;
 
     private Leaf NewLeaf() => new() { Keys = new TKey[_max + 1], Values = new TValue[_max + 1], Level = 0 };
@@ -356,7 +356,7 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
         }
 
         InsertIntoLeaf(leaf, ~idx, key, value);
-        Interlocked.Increment(ref _count);
+        _count.Increment();
         if (leaf.Count <= _max)
         {
             leaf.WriteUnlock();
@@ -518,8 +518,8 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
         Array.Clear(leaf.Values, leaf.Count, 1);
         bool underfull = leaf.Count < _min;
         leaf.WriteUnlock();
-        Interlocked.Decrement(ref _count);
-        Interlocked.Increment(ref _deletedSinceCompact);
+        _count.Decrement();
+        _deletedSinceCompact.Increment();
         if (underfull && _onlineMerge) MergeOnline(key);    // online half-dead merge -> automatic reclamation
         return true;
     }
@@ -541,8 +541,8 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
         Array.Clear(leaf.Values, leaf.Count, 1);
         bool underfull = leaf.Count < _min;
         leaf.WriteUnlock();
-        Interlocked.Decrement(ref _count);
-        Interlocked.Increment(ref _deletedSinceCompact);
+        _count.Decrement();
+        _deletedSinceCompact.Increment();
         if (underfull && _onlineMerge) MergeOnline(key);    // online half-dead merge -> automatic reclamation
         return true;
     }
@@ -880,7 +880,7 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
     }
 
     /// <summary>Resets to empty by swapping in a fresh leaf root. Quiescent semantics under contention.</summary>
-    public void Clear() { _root = NewLeaf(); Interlocked.Exchange(ref _count, 0); Interlocked.Exchange(ref _deletedSinceCompact, 0); }
+    public void Clear() { _root = NewLeaf(); _count.Set(0); _deletedSinceCompact.Set(0); }
 
     // =====================================================================
     //  Compaction (lazy-delete reclamation) — QUIESCENT bulk rebuild.
@@ -892,15 +892,15 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
     //  the rebuild races the root swap and could be lost. `DeletedSinceCompact` tells you when it's worth
     //  doing (e.g. compact once deletes exceed, say, half of Count).
     // =====================================================================
-    public long DeletedSinceCompact => Interlocked.Read(ref _deletedSinceCompact);
+    public long DeletedSinceCompact => _deletedSinceCompact.Sum();
 
     public void Compact()
     {
         var entries = new List<KeyValuePair<TKey, TValue>>(Count);
         foreach (var kv in this) entries.Add(kv);          // ascending snapshot
         _root = BulkBuild(entries);
-        Interlocked.Exchange(ref _count, entries.Count);
-        Interlocked.Exchange(ref _deletedSinceCompact, 0);
+        _count.Set(entries.Count);
+        _deletedSinceCompact.Set(0);
     }
 
     private TKey FirstKeyOf(Node n) { while (n is Internal ind) n = ind.Children[0]; return ((Leaf)n).Keys[0]; }
@@ -1020,7 +1020,7 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
                     throw new InvalidOperationException($"leaf chain not strictly ascending at {leaf.Keys[i]} after {prev}");
                 prev = leaf.Keys[i]; first = false; chain++;
             }
-        long cnt = Interlocked.Read(ref _count);
+        long cnt = _count.Sum();
         if (leafTotal != cnt) throw new InvalidOperationException($"subtree key total {leafTotal} != _count {cnt}");
         if (chain != cnt) throw new InvalidOperationException($"leaf-chain key total {chain} != _count {cnt}");
     }
