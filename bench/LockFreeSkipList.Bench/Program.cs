@@ -726,6 +726,10 @@ static class Program
             (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
         Block("bptree-256", () => new ConcurrentBPlusTree<long, long>(256),
             (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
+        Block("blink-64", () => new BLinkTree<long, long>(64),
+            (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
+        Block("blink-256", () => new BLinkTree<long, long>(256),
+            (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
         Block("csd-32", () => new ConcurrentSortedDictionary<long, long>(32),
             (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k));
         Console.WriteLine();
@@ -802,6 +806,9 @@ static class Program
             (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
         foreach (int order in new[] { 64, 128, 256 })
             Row($"bptree-{order}", () => new ConcurrentBPlusTree<long, long>(order),
+                (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
+        foreach (int order in new[] { 64, 256 })
+            Row($"blink-{order}", () => new BLinkTree<long, long>(order),
                 (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
         foreach (int k in new[] { 32, 64 })
             Row($"csd-{k}", () => new ConcurrentSortedDictionary<long, long>(k),
