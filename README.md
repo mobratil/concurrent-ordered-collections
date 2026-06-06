@@ -1,7 +1,7 @@
 # Mobratil.Collections
 
-Thread-safe **sorted, navigable** dictionaries for .NET — the ordered, range-queryable
-counterparts to `ConcurrentDictionary`.
+A **concurrent B+ tree** and a **concurrent skip list** for .NET — thread-safe, sorted, navigable
+dictionaries; the ordered, range-queryable counterparts to `ConcurrentDictionary`.
 
 [![ci](https://github.com/mobratil/collections/actions/workflows/ci.yml/badge.svg)](https://github.com/mobratil/collections/actions/workflows/ci.yml)
 
