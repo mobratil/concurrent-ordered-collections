@@ -5,6 +5,11 @@ counterparts to `ConcurrentDictionary`.
 
 [![ci](https://github.com/mobratil/concurrent-ordered-collections/actions/workflows/ci.yml/badge.svg)](https://github.com/mobratil/concurrent-ordered-collections/actions/workflows/ci.yml)
 
+> ⚠️ **Vibe-coded.** This library was designed and implemented largely through AI-assisted ("vibe")
+> coding. It is tested hard — highly-parallel stress and model-based linearizability on both x64 and
+> arm64, and several real concurrency bugs were found and fixed that way — but it has **not** had a
+> line-by-line human audit. It's `0.1.0`; treat it accordingly.
+
 - `ConcurrentSkipListDictionary<TKey,TValue>` — lock-free skip list (a port of Doug Lea's `ConcurrentSkipListMap`).
 - `ConcurrentBTreeDictionary<TKey,TValue>` — optimistic-lock-coupling B+ tree (compact, high read throughput).
 
