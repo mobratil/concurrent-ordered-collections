@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using LockFree;
+using Mobratil.Collections;
 using Xunit;
 using Xunit.Abstractions;
 

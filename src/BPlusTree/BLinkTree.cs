@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
-namespace Ordered;
+namespace Mobratil.Collections;
 
 /// <summary>
 /// EXPERIMENT — a Lehman &amp; Yao B-link tree, to compare write-scalability against the OLC

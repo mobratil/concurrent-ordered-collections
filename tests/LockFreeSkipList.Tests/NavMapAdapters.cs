@@ -1,6 +1,5 @@
 using System.Collections;
-using LockFree;
-using Ordered;
+using Mobratil.Collections;
 
 namespace LockFreeSkipList.Tests;
 

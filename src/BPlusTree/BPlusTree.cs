@@ -2,7 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
-namespace Ordered;
+namespace Mobratil.Collections;
 
 /// <summary>
 /// STEP 1: a plain, single-threaded B+-tree (sorted map). No concurrency yet — the goal

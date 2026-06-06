@@ -1,4 +1,4 @@
-using LockFree;
+using Mobratil.Collections;
 using Xunit;
 
 namespace LockFreeSkipList.Tests;

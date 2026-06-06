@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Ordered;
+using Mobratil.Collections;
 
 // Headless concurrency stress for ConcurrentBTreeDictionary, reproducing the two bugs the xUnit suite found
 // and fixed: (1) the descent NullReferenceException and (2) the torn (key,value) range scan. Purpose:

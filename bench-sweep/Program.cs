@@ -4,8 +4,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using LockFree;
-using Ordered;
+using Mobratil.Collections;
 
 // Headless scaling sweep -> CSV on stdout. Compares skip list vs OLC ConcurrentBTreeDictionary vs B-link, across
 // thread counts, for three modes (read-only, write-only, mixed). Best-of-N per cell. Designed for a

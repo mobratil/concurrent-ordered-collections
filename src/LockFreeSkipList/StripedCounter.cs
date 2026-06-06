@@ -2,7 +2,7 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
-namespace LockFree;
+namespace Mobratil.Collections;
 
 /// <summary>
 /// A LongAdder-style striped counter. Instead of one shared atomic (whose cache line ping-pongs between

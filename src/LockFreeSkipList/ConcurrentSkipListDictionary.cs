@@ -5,7 +5,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
-namespace LockFree;
+namespace Mobratil.Collections;
 
 /// <summary>
 /// A lock-free, concurrent, sorted dictionary — the .NET equivalent of Java's

@@ -5,7 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace Ordered;
+namespace Mobratil.Collections;
 
 /// <summary>
 /// A concurrent, sorted <see cref="IDictionary{TKey,TValue}"/> backed by an in-memory B+ tree and kept
