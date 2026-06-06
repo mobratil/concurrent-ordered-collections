@@ -8,22 +8,28 @@ using System.Threading;
 namespace Ordered;
 
 /// <summary>
-/// STEP 2: a concurrent B+-tree (sorted map) using Optimistic Lock Coupling.
+/// A concurrent, sorted <see cref="IDictionary{TKey,TValue}"/> backed by an in-memory B+ tree and kept
+/// thread-safe with Optimistic Lock Coupling (OLC). Think of it as the ordered, range-queryable sibling of
+/// <see cref="System.Collections.Concurrent.ConcurrentDictionary{TKey,TValue}"/>: because keys are held in
+/// sort order it adds navigable lookups (<c>TryGetCeiling</c>/<c>TryGetFloor</c>/<c>TryGetHigher</c>/
+/// <c>TryGetLower</c>) and live range views (<c>GetViewBetween</c>, <c>GetViewFrom</c>, <c>GetViewTo</c>,
+/// <c>Reverse</c>) in the spirit of <see cref="SortedSet{T}"/>.
 ///
-///  * Reads are LOCK-FREE / optimistic: a lookup reads a per-node version, descends, and
-///    re-validates the version after reading each child pointer and after reading the leaf.
-///    Any concurrent write (which bumps the version) makes it restart — it never blocks and
-///    never returns inconsistent data.
-///  * Writes use LATCH-COUPLING with safe-node release: lock top-down, releasing ancestors
-///    as soon as a node is reached that cannot be forced to split. Splits propagate up
-///    through the held (locked) chain; root growth republishes the root while still holding
-///    the old root's lock. Because every structural change happens with the node write-locked
-///    (its version odd for the whole mutation), readers that touch a mid-mutation node simply
-///    restart.
-///  * Delete is "lazy" (remove from the leaf, no merge) — same simplification as the
-///    single-threaded baseline.
+/// <para><b>Consistency.</b> Point operations — <see cref="TryGetValue"/>, <see cref="TryAdd"/>,
+/// <see cref="TryRemove(TKey, out TValue)"/>, the indexer, <see cref="GetOrAdd(TKey, TValue)"/>,
+/// <c>AddOrUpdate</c>, and the navigable lookups — are <i>linearizable</i>. Enumeration and range views are
+/// <i>weakly consistent</i>: they never throw on concurrent mutation and always yield keys in order, but
+/// are not a point-in-time snapshot (like <see cref="System.Collections.Concurrent.ConcurrentDictionary{TKey,TValue}"/>'s
+/// enumerator). <see cref="Count"/> is weakly consistent and never negative. See <c>docs/CONCURRENCY.md</c>.</para>
 ///
-/// Lock order is always parent-before-child (top-down), so there is no deadlock.
+/// <para><b>How it stays correct under contention.</b> Reads are optimistic and never block: a reader
+/// snapshots a per-node version, descends, and re-validates; any concurrent write bumps the version and
+/// triggers a cheap retry rather than a stall. (On weak-memory hardware the re-validation carries a load
+/// fence — see <c>Node.Validate</c>.) Writes latch-couple top-down, releasing an ancestor the moment it is
+/// known it cannot split; splits propagate up the locked chain and recursive sibling merges reclaim space
+/// automatically. Locks are always taken parent-before-child, so the structure cannot deadlock.</para>
+///
+/// <para>The <c>order</c> constructor parameter sets node fan-out (max keys per node; default 64).</para>
 /// </summary>
 public sealed class ConcurrentBTreeDictionary<TKey, TValue>
     : IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>
@@ -913,7 +919,7 @@ public sealed class ConcurrentBTreeDictionary<TKey, TValue>
         }
     }
 
-    /// <summary>Atomically removes and returns the smallest entry. (pollFirstEntry.)</summary>
+    /// <summary>Atomically removes and returns the smallest entry.</summary>
     public bool TryRemoveFirst(out KeyValuePair<TKey, TValue> entry)
     {
         for (; ; )
@@ -923,7 +929,7 @@ public sealed class ConcurrentBTreeDictionary<TKey, TValue>
         }
     }
 
-    /// <summary>Atomically removes and returns the largest entry. (pollLastEntry.)</summary>
+    /// <summary>Atomically removes and returns the largest entry.</summary>
     public bool TryRemoveLast(out KeyValuePair<TKey, TValue> entry)
     {
         for (; ; )

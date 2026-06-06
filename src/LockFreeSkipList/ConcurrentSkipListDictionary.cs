@@ -16,7 +16,7 @@ namespace LockFree;
 /// algorithm that backs Java's ConcurrentSkipListMap), with one deliberate change
 /// for the CLR: it is fully generic over &lt;TKey,TValue&gt;, so neither keys nor
 /// values are boxed. Keys live in a typed <c>Node.Key</c> field; values live in a
-/// typed field of a small <see cref="ValueHolder{TValue}"/> object (the holder is
+/// typed field of a small <c>ValueHolder</c> object (the holder is
 /// the CAS unit that lets us atomically replace/delete a value — it plays the exact
 /// role of Java's <c>volatile Object value</c> field, but without boxing the value
 /// itself).
@@ -906,19 +906,19 @@ public sealed class ConcurrentSkipListDictionary<TKey, TValue>
     //  NavigableMap: relational queries (lower/floor/ceiling/higher)
     // =====================================================================
 
-    /// <summary>Greatest entry with a key strictly &lt; <paramref name="key"/>. (NavigableMap.lowerEntry.)</summary>
+    /// <summary>Greatest entry with a key strictly &lt; <paramref name="key"/>.</summary>
     public bool TryGetLower(TKey key, out KeyValuePair<TKey, TValue> entry) => TryFindNear(key, RelLt, out entry);
 
-    /// <summary>Greatest entry with a key ≤ <paramref name="key"/>. (NavigableMap.floorEntry.)</summary>
+    /// <summary>Greatest entry with a key ≤ <paramref name="key"/>.</summary>
     public bool TryGetFloor(TKey key, out KeyValuePair<TKey, TValue> entry) => TryFindNear(key, RelLt | RelEq, out entry);
 
-    /// <summary>Least entry with a key ≥ <paramref name="key"/>. (NavigableMap.ceilingEntry.)</summary>
+    /// <summary>Least entry with a key ≥ <paramref name="key"/>.</summary>
     public bool TryGetCeiling(TKey key, out KeyValuePair<TKey, TValue> entry) => TryFindNear(key, RelEq, out entry);
 
-    /// <summary>Least entry with a key strictly &gt; <paramref name="key"/>. (NavigableMap.higherEntry.)</summary>
+    /// <summary>Least entry with a key strictly &gt; <paramref name="key"/>.</summary>
     public bool TryGetHigher(TKey key, out KeyValuePair<TKey, TValue> entry) => TryFindNear(key, 0, out entry);
 
-    /// <summary>Key of <see cref="TryGetLower(TKey, out KeyValuePair{TKey, TValue})"/>. (NavigableMap.lowerKey.)</summary>
+    /// <summary>Key of <see cref="TryGetLower(TKey, out KeyValuePair{TKey, TValue})"/>.</summary>
     public bool TryGetLowerKey(TKey key, out TKey result) => Project(TryGetLower(key, out var e), e, out result);
     public bool TryGetFloorKey(TKey key, out TKey result) => Project(TryGetFloor(key, out var e), e, out result);
     public bool TryGetCeilingKey(TKey key, out TKey result) => Project(TryGetCeiling(key, out var e), e, out result);
@@ -934,7 +934,7 @@ public sealed class ConcurrentSkipListDictionary<TKey, TValue>
     //  NavigableMap: poll (atomic remove-min / remove-max)
     // =====================================================================
 
-    /// <summary>Atomically removes and returns the smallest entry. (NavigableMap.pollFirstEntry.)</summary>
+    /// <summary>Atomically removes and returns the smallest entry.</summary>
     public bool TryRemoveFirst(out KeyValuePair<TKey, TValue> entry)
     {
         for (; ; )
@@ -958,7 +958,7 @@ public sealed class ConcurrentSkipListDictionary<TKey, TValue>
         }
     }
 
-    /// <summary>Atomically removes and returns the largest entry. (NavigableMap.pollLastEntry.)</summary>
+    /// <summary>Atomically removes and returns the largest entry.</summary>
     public bool TryRemoveLast(out KeyValuePair<TKey, TValue> entry)
     {
         for (; ; )
@@ -982,7 +982,7 @@ public sealed class ConcurrentSkipListDictionary<TKey, TValue>
     /// <summary>The comparer that defines key ordering. (SortedMap.comparator.)</summary>
     public IComparer<TKey> Comparer => _comparer;
 
-    /// <summary>O(n) scan for a value. (Map.containsValue.)</summary>
+    /// <summary>O(n) scan for a value.</summary>
     public bool ContainsValue(TValue value)
     {
         var cmp = EqualityComparer<TValue>.Default;
@@ -991,7 +991,7 @@ public sealed class ConcurrentSkipListDictionary<TKey, TValue>
         return false;
     }
 
-    /// <summary>Value for the key, or <paramref name="defaultValue"/> if absent. (Map.getOrDefault.)</summary>
+    /// <summary>Value for the key, or <paramref name="defaultValue"/> if absent.</summary>
     public TValue GetValueOrDefault(TKey key, TValue defaultValue)
         => DoGet(key, out var v) ? v : defaultValue;
 
@@ -1013,7 +1013,7 @@ public sealed class ConcurrentSkipListDictionary<TKey, TValue>
     //  Functional bulk / compute helpers
     // =====================================================================
 
-    /// <summary>Inserts or overwrites every entry from <paramref name="items"/>. (Map.putAll.)</summary>
+    /// <summary>Inserts or overwrites every entry from <paramref name="items"/>.</summary>
     public void AddRange(IEnumerable<KeyValuePair<TKey, TValue>> items)
     {
         ArgumentNullException.ThrowIfNull(items);
@@ -1021,8 +1021,9 @@ public sealed class ConcurrentSkipListDictionary<TKey, TValue>
     }
 
 
-    /// <summary>If the key is present, recomputes its value from the current one and stores it; returns false if
-    /// absent. (Map.computeIfPresent — note: unlike Java, a value type cannot signal removal via null.)</summary>
+    /// <summary>If the key is present, atomically recomputes its value from the current one and stores the
+    /// result; returns <see langword="false"/> if the key is absent. A returned value cannot signal removal
+    /// (there is no null sentinel for value types) — use <see cref="TryRemove(TKey, out TValue)"/> for that.</summary>
     public bool ComputeIfPresent(TKey key, Func<TKey, TValue, TValue> remappingFunction, out TValue newValue)
     {
         ArgumentNullException.ThrowIfNull(remappingFunction);
@@ -1035,7 +1036,7 @@ public sealed class ConcurrentSkipListDictionary<TKey, TValue>
     }
 
     /// <summary>Replaces every value with <paramref name="transform"/>(key, currentValue). Best-effort over a
-    /// snapshot of the keys; concurrent inserts after the snapshot are not visited. (Map.replaceAll.)</summary>
+    /// snapshot of the keys; concurrent inserts after the snapshot are not visited.</summary>
     public void ReplaceAll(Func<TKey, TValue, TValue> transform)
     {
         ArgumentNullException.ThrowIfNull(transform);
@@ -1058,23 +1059,23 @@ public sealed class ConcurrentSkipListDictionary<TKey, TValue>
     /// to exclusive — like SortedMap.subMap). Reflects and can mutate the parent within range.</summary>
     public RangeView GetViewBetween(TKey fromKey, TKey toKey) => GetViewBetween(fromKey, true, toKey, false);
 
-    /// <summary>A live view over keys between the two bounds, with explicit inclusivity (NavigableMap.subMap).</summary>
+    /// <summary>A live view over keys between the two bounds, with explicit inclusivity.</summary>
     public RangeView GetViewBetween(TKey fromKey, bool fromInclusive, TKey toKey, bool toInclusive)
         => new(this, true, fromKey, fromInclusive, true, toKey, toInclusive, descending: false);
 
-    /// <summary>A live view over keys &lt; <paramref name="toKey"/> (or ≤ when inclusive). (NavigableMap.headMap.)</summary>
+    /// <summary>A live view over keys &lt; <paramref name="toKey"/> (or ≤ when inclusive).</summary>
     public RangeView GetViewTo(TKey toKey, bool inclusive = false)
         => new(this, false, default!, false, true, toKey, inclusive, descending: false);
 
-    /// <summary>A live view over keys ≥ <paramref name="fromKey"/> (or &gt; when not inclusive). (NavigableMap.tailMap.)</summary>
+    /// <summary>A live view over keys ≥ <paramref name="fromKey"/> (or &gt; when not inclusive).</summary>
     public RangeView GetViewFrom(TKey fromKey, bool inclusive = true)
         => new(this, true, fromKey, inclusive, false, default!, false, descending: false);
 
-    /// <summary>A live, reverse-ordered view of the whole dictionary. (NavigableMap.descendingMap.)</summary>
+    /// <summary>A live, reverse-ordered view of the whole dictionary.</summary>
     public RangeView Reverse()
         => new(this, false, default!, false, false, default!, false, descending: true);
 
-    /// <summary>The keys in descending order. (NavigableMap.descendingKeySet.)</summary>
+    /// <summary>The keys in descending order.</summary>
     public IEnumerable<TKey> DescendingKeys
     {
         get { foreach (var kv in Reverse()) yield return kv.Key; }
@@ -1240,7 +1241,7 @@ public sealed class ConcurrentSkipListDictionary<TKey, TValue>
             }
         }
 
-        /// <summary>Reverses the iteration order of this view. (NavigableMap.descendingMap.)</summary>
+        /// <summary>Reverses the iteration order of this view.</summary>
         public RangeView Reverse()
             => new(_p, _hasLo, _lo, _loInc, _hasHi, _hi, _hiInc, !_desc);
     }
