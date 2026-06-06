@@ -19,7 +19,7 @@ public class ConcurrentBPlusTreeTests
     [Fact]
     public void Empty_And_Roundtrip()
     {
-        var t = new ConcurrentBPlusTree<int, string>(order: 4);
+        var t = new ConcurrentBTreeDictionary<int, string>(order: 4);
         Assert.True(t.IsEmpty);
         Assert.False(t.TryGetValue(1, out _));
         Assert.True(t.TryAdd(1, "a"));
@@ -39,7 +39,7 @@ public class ConcurrentBPlusTreeTests
     public void Model_Based_Against_SortedDictionary(int order, int seed)
     {
         var rng = new Random(seed);
-        var tree = new ConcurrentBPlusTree<int, int>(order);
+        var tree = new ConcurrentBTreeDictionary<int, int>(order);
         var model = new SortedDictionary<int, int>();
         const int keySpace = 400;
 
@@ -77,7 +77,7 @@ public class ConcurrentBPlusTreeTests
         const int per = 12_000;
         for (int rep = 0; rep < 30; rep++)
         {
-            var t = new ConcurrentBPlusTree<int, int>(order: 4);   // tiny order -> constant splits
+            var t = new ConcurrentBTreeDictionary<int, int>(order: 4);   // tiny order -> constant splits
             Parallel.For(0, threads, tid =>
             {
                 int baseK = tid * per;
@@ -114,7 +114,7 @@ public class ConcurrentBPlusTreeTests
     [Fact]
     public void Disjoint_Parallel_Inserts_Preserve_All()
     {
-        var t = new ConcurrentBPlusTree<long, long>(order: 32);
+        var t = new ConcurrentBTreeDictionary<long, long>(order: 32);
         const int perThread = 50_000;
         int threads = Threads;
 
@@ -144,7 +144,7 @@ public class ConcurrentBPlusTreeTests
     [Fact]
     public void Concurrent_TryAdd_Same_Keys_Exactly_Once()
     {
-        var t = new ConcurrentBPlusTree<int, int>(order: 16);
+        var t = new ConcurrentBTreeDictionary<int, int>(order: 16);
         const int keys = 50_000;
         long won = 0;
         Parallel.For(0, Threads, tid =>
@@ -164,7 +164,7 @@ public class ConcurrentBPlusTreeTests
     [Fact]
     public void Concurrent_Remove_Same_Keys_Exactly_Once()
     {
-        var t = new ConcurrentBPlusTree<int, int>(order: 16);
+        var t = new ConcurrentBTreeDictionary<int, int>(order: 16);
         const int keys = 50_000;
         for (int k = 0; k < keys; k++) t[k] = k;
         long removed = 0;
@@ -185,7 +185,7 @@ public class ConcurrentBPlusTreeTests
     [Fact]
     public void Mixed_Churn_Then_Drain_Leaves_Exact_Survivors()
     {
-        var t = new ConcurrentBPlusTree<int, int>(order: 32);
+        var t = new ConcurrentBTreeDictionary<int, int>(order: 32);
         const int keySpace = 100_000;
         for (int k = 0; k < keySpace; k += 2) t[k] = k;            // even survivors
 
@@ -220,7 +220,7 @@ public class ConcurrentBPlusTreeTests
     [Fact]
     public void Enumeration_Always_Sorted_Under_Concurrent_Mutation()
     {
-        var t = new ConcurrentBPlusTree<int, int>(order: 16);
+        var t = new ConcurrentBTreeDictionary<int, int>(order: 16);
         const int keySpace = 30_000;
         for (int k = 0; k < keySpace; k += 2) t[k] = k;
 
@@ -259,7 +259,7 @@ public class ConcurrentBPlusTreeTests
     {
         // Random concurrent ops on a small key space; each thread logs nothing, but a final
         // quiescent comparison against a lock-guarded SortedDictionary mirror checks the set.
-        var t = new ConcurrentBPlusTree<int, int>(order: 8);
+        var t = new ConcurrentBTreeDictionary<int, int>(order: 8);
         var oracle = new SortedDictionary<int, int>();
         var gate = new object();
         const int keySpace = 2000;

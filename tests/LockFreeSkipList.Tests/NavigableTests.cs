@@ -7,9 +7,9 @@ namespace LockFreeSkipList.Tests;
 public class NavigableTests
 {
     // A dictionary of the EVEN keys 0,2,..,98 (so odd query keys are "between" entries).
-    private static LockFreeSkipListDictionary<int, int> EvenKeys()
+    private static ConcurrentSkipListDictionary<int, int> EvenKeys()
     {
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         for (int k = 0; k <= 98; k += 2) d[k] = k * 10;
         return d;
     }
@@ -64,7 +64,7 @@ public class NavigableTests
         Assert.False(d.TryGetLowerKey(0, out _));   // nothing below the minimum
         Assert.False(d.TryGetHigherKey(98, out _)); // nothing above the maximum
 
-        var m = new LockFreeSkipListDictionary<int, int>();
+        var m = new ConcurrentSkipListDictionary<int, int>();
         Assert.Equal(5, m.GetOrAdd(1, _ => 5));                       // factory add
         Assert.Equal(5, m.GetOrAdd(1, _ => 999));                     // existing wins
         Assert.Equal(7, m.AddOrUpdate(2, _ => 7, (_, old) => old + 1)); // factory add branch
@@ -75,7 +75,7 @@ public class NavigableTests
     [Fact]
     public void Poll_First_And_Last_Drain_In_Order()
     {
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         for (int i = 0; i < 10; i++) d[i] = i;
 
         Assert.True(d.TryRemoveFirst(out var first));
@@ -96,7 +96,7 @@ public class NavigableTests
     [Fact]
     public void Conveniences()
     {
-        var d = new LockFreeSkipListDictionary<int, string>();
+        var d = new ConcurrentSkipListDictionary<int, string>();
         d[1] = "a"; d[2] = "b";
 
         Assert.Same(Comparer<int>.Default, d.Comparer);
@@ -116,20 +116,20 @@ public class NavigableTests
     [Fact]
     public void Functional_Updates()
     {
-        var d = new LockFreeSkipListDictionary<string, int>();
-        d.PutAll(new[] { new KeyValuePair<string, int>("a", 1), new("b", 2) });
+        var d = new ConcurrentSkipListDictionary<string, int>();
+        d.AddRange(new[] { new KeyValuePair<string, int>("a", 1), new("b", 2) });
         Assert.Equal(new[] { "a", "b" }, d.Keys);
 
-        Assert.Equal(10, d.ComputeIfAbsent("c", _ => 10)); // adds
-        Assert.Equal(1, d.ComputeIfAbsent("a", _ => 999)); // present wins
+        Assert.Equal(10, d.GetOrAdd("c", _ => 10)); // adds
+        Assert.Equal(1, d.GetOrAdd("a", _ => 999)); // present wins
 
         Assert.True(d.ComputeIfPresent("a", (_, v) => v + 100, out var nv));
         Assert.Equal(101, nv);
         Assert.Equal(101, d["a"]);
         Assert.False(d.ComputeIfPresent("zzz", (_, v) => v, out _));
 
-        Assert.Equal(2, d.Merge("b", 5, (old, given) => old));   // present -> keep old via remap
-        Assert.Equal(7, d.Merge("new", 7, (old, given) => old + given)); // absent -> store value
+        Assert.Equal(2, d.AddOrUpdate("b", 5, (_, old) => old));   // present -> keep old via remap
+        Assert.Equal(7, d.AddOrUpdate("new", 7, (_, old) => old + 7)); // absent -> store value
         Assert.Equal(7, d["new"]);
 
         d.ReplaceAll((_, v) => v * 2);
@@ -140,17 +140,17 @@ public class NavigableTests
     [Fact]
     public void SubMap_HeadMap_TailMap_Ranges()
     {
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         for (int i = 0; i < 10; i++) d[i] = i;
 
-        Assert.Equal(new[] { 0, 1, 2, 3, 4 }, d.HeadMap(5).Keys);              // < 5
-        Assert.Equal(new[] { 0, 1, 2, 3, 4, 5 }, d.HeadMap(5, inclusive: true).Keys);
-        Assert.Equal(new[] { 5, 6, 7, 8, 9 }, d.TailMap(5).Keys);             // >= 5
-        Assert.Equal(new[] { 6, 7, 8, 9 }, d.TailMap(5, inclusive: false).Keys);
-        Assert.Equal(new[] { 3, 4, 5, 6 }, d.SubMap(3, 7).Keys);              // [3,7)
-        Assert.Equal(new[] { 3, 4, 5, 6, 7 }, d.SubMap(3, true, 7, true).Keys);
+        Assert.Equal(new[] { 0, 1, 2, 3, 4 }, d.GetViewTo(5).Keys);              // < 5
+        Assert.Equal(new[] { 0, 1, 2, 3, 4, 5 }, d.GetViewTo(5, inclusive: true).Keys);
+        Assert.Equal(new[] { 5, 6, 7, 8, 9 }, d.GetViewFrom(5).Keys);             // >= 5
+        Assert.Equal(new[] { 6, 7, 8, 9 }, d.GetViewFrom(5, inclusive: false).Keys);
+        Assert.Equal(new[] { 3, 4, 5, 6 }, d.GetViewBetween(3, 7).Keys);              // [3,7)
+        Assert.Equal(new[] { 3, 4, 5, 6, 7 }, d.GetViewBetween(3, true, 7, true).Keys);
 
-        var sub = d.SubMap(3, 7);
+        var sub = d.GetViewBetween(3, 7);
         Assert.Equal(4, sub.Count);
         Assert.True(sub.ContainsKey(5));
         Assert.False(sub.ContainsKey(7));     // out of range
@@ -167,9 +167,9 @@ public class NavigableTests
     [Fact]
     public void SubMap_Is_A_Live_Mutable_View()
     {
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         for (int i = 0; i < 10; i++) d[i] = i;
-        var sub = d.SubMap(3, 7);   // [3,7)
+        var sub = d.GetViewBetween(3, 7);   // [3,7)
 
         sub[5] = 500;                       // in range
         Assert.Equal(500, d[5]);            // reflected in parent
@@ -191,10 +191,10 @@ public class NavigableTests
     [Fact]
     public void DescendingMap_Reverses_Order_And_Navigation()
     {
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         for (int i = 0; i < 5; i++) d[i] = i;
 
-        var desc = d.DescendingMap();
+        var desc = d.Reverse();
         Assert.Equal(new[] { 4, 3, 2, 1, 0 }, desc.Keys);
         Assert.Equal(new[] { 4, 3, 2, 1, 0 }, d.DescendingKeys);
         Assert.True(desc.TryGetFirst(out var f) && f.Key == 4); // first in view order = largest
@@ -205,15 +205,15 @@ public class NavigableTests
         Assert.True(desc.TryGetLower(2, out var lo) && lo.Key == 3);
 
         // descendingMap of a tailMap, and double-reverse
-        Assert.Equal(new[] { 4, 3, 2 }, d.TailMap(2).DescendingMap().Keys);
-        Assert.Equal(new[] { 0, 1, 2, 3, 4 }, desc.DescendingMap().Keys);
+        Assert.Equal(new[] { 4, 3, 2 }, d.GetViewFrom(2).Reverse().Keys);
+        Assert.Equal(new[] { 0, 1, 2, 3, 4 }, desc.Reverse().Keys);
     }
 
     [Fact]
     public void Descending_Custom_Comparer_Still_Navigates()
     {
         // parent already descending via comparer; views must respect it
-        var d = new LockFreeSkipListDictionary<int, int>(Comparer<int>.Create((a, b) => b.CompareTo(a)));
+        var d = new ConcurrentSkipListDictionary<int, int>(Comparer<int>.Create((a, b) => b.CompareTo(a)));
         for (int i = 0; i < 5; i++) d[i] = i;
         Assert.Equal(new[] { 4, 3, 2, 1, 0 }, d.Keys);              // descending by comparer
         Assert.True(d.TryGetFirst(out var f) && f.Key == 4);       // "first" under comparator

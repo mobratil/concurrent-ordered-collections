@@ -17,7 +17,7 @@ using Ordered;
 //   * Threads start together behind a barrier; we measure pure steady-state.
 //   * Two .NET variants, parameterised only by how the workload's `long` maps onto
 //     the dictionary's element type T (no bespoke wrapper interface — the harness is
-//     generic over the concrete LockFreeSkipListDictionary<T,T>):
+//     generic over the concrete ConcurrentSkipListDictionary<T,T>):
 //        long-long : value types, no boxing (idiomatic .NET)
 //        ref-ref   : a reference-type wrapper (one heap object per put/get/remove),
 //                    the .NET analogue of Java boxing long into java.lang.Long
@@ -88,7 +88,7 @@ static class Program
     // put reuses one wrapper object as both key and value — so ref-ref allocates one
     // heap object per put + one per get/remove, the same profile the harness has
     // always measured. Everything runs against the concrete
-    // LockFreeSkipListDictionary<T,T> (no wrapper interface).
+    // ConcurrentSkipListDictionary<T,T> (no wrapper interface).
     static readonly Func<long, long> LongConv = k => k;
     static readonly Func<long, LongRef> RefConv = k => new LongRef(k);
 
@@ -97,7 +97,7 @@ static class Program
     // =====================================================================
     static long RunOnce<T>(Func<long, T> conv, int threadCount)
     {
-        var map = new LockFreeSkipListDictionary<T, T>();
+        var map = new ConcurrentSkipListDictionary<T, T>();
 
         // Deterministic pre-fill (single-threaded, not timed).
         var fillRng = new SplitMix64(0xDEADBEEFUL);
@@ -204,7 +204,7 @@ static class Program
 
     static long RunOp<T>(Func<long, T> conv, Op op, int threadCount)
     {
-        var map = new LockFreeSkipListDictionary<T, T>();
+        var map = new ConcurrentSkipListDictionary<T, T>();
         long prefill = OpCfg.Prefill;
         long mutateTotal = OpCfg.MutateTotal;
         long perThread = (op == Op.Insert || op == Op.Remove)
@@ -335,7 +335,7 @@ static class Program
 
     static (double readMops, double writeMops) RunRw<T>(Func<long, T> conv, int writers, int readers)
     {
-        var map = new LockFreeSkipListDictionary<T, T>();
+        var map = new ConcurrentSkipListDictionary<T, T>();
         long prefill = RwCfg.Prefill;
         for (long i = 0; i < prefill; i++) { var x = conv(2 * i); map[x] = x; }   // even keys present
         ulong range = (ulong)(2 * prefill);
@@ -720,11 +720,11 @@ static class Program
             PrintMatrix("WRITE throughput", write);
         }
 
-        Block("skiplist", () => new LockFreeSkipListDictionary<long, long>(),
+        Block("skiplist", () => new ConcurrentSkipListDictionary<long, long>(),
             (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
-        Block("bptree-64", () => new ConcurrentBPlusTree<long, long>(64),
+        Block("bptree-64", () => new ConcurrentBTreeDictionary<long, long>(64),
             (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
-        Block("bptree-256", () => new ConcurrentBPlusTree<long, long>(256),
+        Block("bptree-256", () => new ConcurrentBTreeDictionary<long, long>(256),
             (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
         Block("blink-64", () => new BLinkTree<long, long>(64),
             (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
@@ -769,11 +769,11 @@ static class Program
                     Console.WriteLine();
                 }
 
-                Row("skiplist", () => new LockFreeSkipListDictionary<long, long>(),
+                Row("skiplist", () => new ConcurrentSkipListDictionary<long, long>(),
                     (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
-                Row("bptree-64", () => new ConcurrentBPlusTree<long, long>(64),
+                Row("bptree-64", () => new ConcurrentBTreeDictionary<long, long>(64),
                     (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
-                Row("bptree-256", () => new ConcurrentBPlusTree<long, long>(256),
+                Row("bptree-256", () => new ConcurrentBTreeDictionary<long, long>(256),
                     (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
                 Row("csd-32", () => new ConcurrentSortedDictionary<long, long>(32),
                     (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k));
@@ -802,10 +802,10 @@ static class Program
         }
 
         Console.WriteLine($"{"structure",-14} {"t=1",7} {"t=2",7} {"t=4",7} {"t=8",7}");
-        Row("skiplist", () => new LockFreeSkipListDictionary<long, long>(),
+        Row("skiplist", () => new ConcurrentSkipListDictionary<long, long>(),
             (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
         foreach (int order in new[] { 64, 128, 256 })
-            Row($"bptree-{order}", () => new ConcurrentBPlusTree<long, long>(order),
+            Row($"bptree-{order}", () => new ConcurrentBTreeDictionary<long, long>(order),
                 (d, k) => d[k] = k, (d, k) => d.TryGetValue(k, out _), (d, k) => d.TryRemove(k, out _));
         foreach (int order in new[] { 64, 256 })
             Row($"blink-{order}", () => new BLinkTree<long, long>(order),
@@ -835,11 +835,11 @@ static class Program
         var keys = ShuffledKeys(size, 0xBEEF);          // long[size] — live throughout, excluded from the delta
         Console.WriteLine($"# retained heap for {size:N0} <long,long> entries (measured via GC.GetTotalMemory(true))");
         MeasureMem("SortedDictionary", keys, () => new SortedDictionary<long, long>(), (d, k) => d[k] = k);
-        MeasureMem("skiplist", keys, () => new LockFreeSkipListDictionary<long, long>(), (d, k) => d.TryAdd(k, k));
+        MeasureMem("skiplist", keys, () => new ConcurrentSkipListDictionary<long, long>(), (d, k) => d.TryAdd(k, k));
         foreach (int order in new[] { 64, 256 })
             MeasureMem($"bptree-st-{order}", keys, () => new BPlusTree<long, long>(order), (d, k) => d.TryAdd(k, k));
         foreach (int order in new[] { 64, 256 })
-            MeasureMem($"bptree-conc-{order}", keys, () => new ConcurrentBPlusTree<long, long>(order), (d, k) => d.TryAdd(k, k));
+            MeasureMem($"bptree-conc-{order}", keys, () => new ConcurrentBTreeDictionary<long, long>(order), (d, k) => d.TryAdd(k, k));
         foreach (int order in new[] { 64, 256 })
             MeasureMem($"blink-{order}", keys, () => new BLinkTree<long, long>(order), (d, k) => d.TryAdd(k, k));
         foreach (int k in new[] { 32, 64 })
@@ -878,10 +878,10 @@ static class Program
         void Scenario(string title, bool[] keep, int keepCount)
         {
             Console.WriteLine($"\n## {title}: retained heap after draining {size:N0} -> {keepCount:N0} survivors");
-            MeasureMemAfterDrain("skiplist", keys, keep, keepCount, () => new LockFreeSkipListDictionary<long, long>(),
+            MeasureMemAfterDrain("skiplist", keys, keep, keepCount, () => new ConcurrentSkipListDictionary<long, long>(),
                 (d, k) => d.TryAdd(k, k), (d, k) => d.TryRemove(k, out _));
             foreach (int order in new[] { 64, 256 })
-                MeasureMemAfterDrain($"bptree-conc-{order}", keys, keep, keepCount, () => new ConcurrentBPlusTree<long, long>(order),
+                MeasureMemAfterDrain($"bptree-conc-{order}", keys, keep, keepCount, () => new ConcurrentBTreeDictionary<long, long>(order),
                     (d, k) => d.TryAdd(k, k), (d, k) => d.TryRemove(k, out _));
             MeasureMemAfterDrain("blink-64 (lazy)", keys, keep, keepCount, () => new BLinkTree<long, long>(64),
                 (d, k) => d.TryAdd(k, k), (d, k) => d.TryRemove(k, out _));
@@ -923,7 +923,7 @@ static class Program
             (d, k) => d[k] = k, (d, k) => d.ContainsKey(k), csv, ci);
 
         RunOne("skiplist", size, lookups, keys,
-            () => new LockFreeSkipListDictionary<long, long>(),
+            () => new ConcurrentSkipListDictionary<long, long>(),
             (d, k) => d.TryAdd(k, k), (d, k) => d.TryGetValue(k, out _), csv, ci);
 
         foreach (int order in new[] { 16, 32, 64, 128, 256 })
@@ -946,7 +946,7 @@ static class Program
 
     static void RunProfileLoop(string which, int seconds)
     {
-        var map = new LockFreeSkipListDictionary<long, long>();
+        var map = new ConcurrentSkipListDictionary<long, long>();
         var fill = new SplitMix64(0xDEADBEEFUL);
         ulong range = (ulong)Workload.KeyRange;
         for (int i = 0; i < Workload.InitialKeys; i++) { var x = (long)(fill.Next() % range); map[x] = x; }

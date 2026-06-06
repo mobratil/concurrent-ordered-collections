@@ -6,7 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Ordered;
 
-// Headless concurrency stress for ConcurrentBPlusTree, reproducing the two bugs the xUnit suite found
+// Headless concurrency stress for ConcurrentBTreeDictionary, reproducing the two bugs the xUnit suite found
 // and fixed: (1) the descent NullReferenceException and (2) the torn (key,value) range scan. Purpose:
 // confirm the structure is clean on THIS architecture and report whether the ARM-only Validate fence is
 // active here. Exit code 0 = all clean, 1 = a failure was detected. Env: STRESS_SECONDS (default 3),
@@ -53,7 +53,7 @@ static class Stress
     // Tiny hot keyset hammered by oversubscribed insert/remove + concurrent gets: reproduces the descent NRE.
     static void DescentAndCountChurn(int order)
     {
-        var d = new ConcurrentBPlusTree<int, int>(order);
+        var d = new ConcurrentBTreeDictionary<int, int>(order);
         const int hot = 256;
         using var stop = new CancellationTokenSource();
         var tasks = new List<Task>();
@@ -94,7 +94,7 @@ static class Stress
     // 50k keys, churn, repeated whole-map scans asserting value==key + strictly ascending: torn-read repro.
     static void ScanValueConsistency(int order)
     {
-        var d = new ConcurrentBPlusTree<int, int>(order);
+        var d = new ConcurrentBTreeDictionary<int, int>(order);
         const int n = 50_000;
         Parallel.For(0, Environment.ProcessorCount, p => { for (int k = p; k < n; k += Environment.ProcessorCount) d[k] = k; });
 

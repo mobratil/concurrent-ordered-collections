@@ -8,7 +8,7 @@ namespace Ordered;
 
 /// <summary>
 /// EXPERIMENT — a Lehman &amp; Yao B-link tree, to compare write-scalability against the OLC
-/// <see cref="ConcurrentBPlusTree{TKey,TValue}"/>.
+/// <see cref="ConcurrentBTreeDictionary{TKey,TValue}"/>.
 ///
 /// The B-link idea: every node carries a <c>HighKey</c> (exclusive upper bound of the keys it owns)
 /// and a <c>Right</c> link to its same-level right sibling. A split is a local "half split": the node
@@ -80,7 +80,7 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
     /// one structural-drift race remains. Concurrent merge on a B-link tree is genuinely hard (Lehman-Yao
     /// omitted deletion; Postgres's took years to harden) and is NOT considered correct here. For
     /// guaranteed reclamation leave this off and use <see cref="Compact"/>; for automatic online
-    /// reclamation use the OLC <c>ConcurrentBPlusTree</c>. Kept as a documented record of the attempt.</summary>
+    /// reclamation use the OLC <c>ConcurrentBTreeDictionary</c>. Kept as a documented record of the attempt.</summary>
     public bool EnableOnlineMerge { get => _onlineMerge; set => _onlineMerge = value; }
 
     public BLinkTree(int order = 64, IComparer<TKey>? comparer = null)
@@ -760,12 +760,12 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
     // =====================================================================
     //  NavigableMap views
     // =====================================================================
-    public RangeView SubMap(TKey fromKey, TKey toKey) => SubMap(fromKey, true, toKey, false);
-    public RangeView SubMap(TKey fromKey, bool fromInclusive, TKey toKey, bool toInclusive)
+    public RangeView GetViewBetween(TKey fromKey, TKey toKey) => GetViewBetween(fromKey, true, toKey, false);
+    public RangeView GetViewBetween(TKey fromKey, bool fromInclusive, TKey toKey, bool toInclusive)
         => new(this, true, fromKey, fromInclusive, true, toKey, toInclusive, descending: false);
-    public RangeView HeadMap(TKey toKey, bool inclusive = false) => new(this, false, default!, false, true, toKey, inclusive, descending: false);
-    public RangeView TailMap(TKey fromKey, bool inclusive = true) => new(this, true, fromKey, inclusive, false, default!, false, descending: false);
-    public RangeView DescendingMap() => new(this, false, default!, false, false, default!, false, descending: true);
+    public RangeView GetViewTo(TKey toKey, bool inclusive = false) => new(this, false, default!, false, true, toKey, inclusive, descending: false);
+    public RangeView GetViewFrom(TKey fromKey, bool inclusive = true) => new(this, true, fromKey, inclusive, false, default!, false, descending: false);
+    public RangeView Reverse() => new(this, false, default!, false, false, default!, false, descending: true);
 
     /// <summary>A live, navigable view over a key range (and/or reversed). Weakly consistent, like the parent.</summary>
     public sealed class RangeView : IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>
@@ -832,7 +832,7 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
         public bool Remove(KeyValuePair<TKey, TValue> item) => InRange(item.Key) && _p.Remove(item);
         public void CopyTo(KeyValuePair<TKey, TValue>[] array, int arrayIndex)
         { ArgumentNullException.ThrowIfNull(array); foreach (var kv in this) { if (arrayIndex >= array.Length) throw new ArgumentException("Destination array is not long enough."); array[arrayIndex++] = kv; } }
-        public RangeView DescendingMap() => new(_p, _hasLo, _lo, _loInc, _hasHi, _hi, _hiInc, !_desc);
+        public RangeView Reverse() => new(_p, _hasLo, _lo, _loInc, _hasHi, _hi, _hiInc, !_desc);
     }
 
     // =====================================================================
@@ -842,7 +842,7 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
     public ICollection<TValue> Values { get { var l = new List<TValue>(); foreach (var kv in this) l.Add(kv.Value); return l; } }
     IEnumerable<TKey> IReadOnlyDictionary<TKey, TValue>.Keys => Keys;
     IEnumerable<TValue> IReadOnlyDictionary<TKey, TValue>.Values => Values;
-    public IEnumerable<TKey> DescendingKeys { get { foreach (var kv in DescendingMap()) yield return kv.Key; } }
+    public IEnumerable<TKey> DescendingKeys { get { foreach (var kv in Reverse()) yield return kv.Key; } }
 
     public bool ContainsValue(TValue value)
     { var cmp = EqualityComparer<TValue>.Default; foreach (var kv in this) if (cmp.Equals(kv.Value, value)) return true; return false; }
@@ -853,16 +853,13 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
     { for (; ; ) { if (TryGetValue(key, out var v)) return v; if (TryAdd(key, value)) return value; } }
     public TValue GetOrAdd(TKey key, Func<TKey, TValue> valueFactory)
     { for (; ; ) { if (TryGetValue(key, out var v)) return v; var nv = valueFactory(key); if (TryAdd(key, nv)) return nv; } }
-    public TValue ComputeIfAbsent(TKey key, Func<TKey, TValue> mappingFunction) => GetOrAdd(key, mappingFunction);
     public bool ComputeIfPresent(TKey key, Func<TKey, TValue, TValue> remappingFunction, out TValue newValue)
     { for (; ; ) { if (!TryGetValue(key, out var cur)) { newValue = default!; return false; } var nv = remappingFunction(key, cur); if (DoReplace(key, nv, true, cur)) { newValue = nv; return true; } } }
     public TValue AddOrUpdate(TKey key, TValue addValue, Func<TKey, TValue, TValue> updateValueFactory)
     { for (; ; ) { if (TryGetValue(key, out var cur)) { var nv = updateValueFactory(key, cur); if (DoReplace(key, nv, true, cur)) return nv; } else if (TryAdd(key, addValue)) return addValue; } }
     public TValue AddOrUpdate(TKey key, Func<TKey, TValue> addValueFactory, Func<TKey, TValue, TValue> updateValueFactory)
     { for (; ; ) { if (TryGetValue(key, out var cur)) { var nv = updateValueFactory(key, cur); if (DoReplace(key, nv, true, cur)) return nv; } else { var add = addValueFactory(key); if (TryAdd(key, add)) return add; } } }
-    public TValue Merge(TKey key, TValue value, Func<TValue, TValue, TValue> remappingFunction)
-    { for (; ; ) { if (TryGetValue(key, out var cur)) { var nv = remappingFunction(cur, value); if (DoReplace(key, nv, true, cur)) return nv; } else if (TryAdd(key, value)) return value; } }
-    public void PutAll(IEnumerable<KeyValuePair<TKey, TValue>> items) { foreach (var kv in items) this[kv.Key] = kv.Value; }
+    public void AddRange(IEnumerable<KeyValuePair<TKey, TValue>> items) { foreach (var kv in items) this[kv.Key] = kv.Value; }
     public void ReplaceAll(Func<TKey, TValue, TValue> transform)
     { foreach (var kv in this) for (; ; ) { if (!TryGetValue(kv.Key, out var cur)) break; if (DoReplace(kv.Key, transform(kv.Key, cur), true, cur)) break; } }
 

@@ -14,7 +14,7 @@ public class ExtraTests
     [Fact]
     public void Clear_Empties_The_Dictionary()
     {
-        var m = new LockFreeSkipListDictionary<int, int>();
+        var m = new ConcurrentSkipListDictionary<int, int>();
         for (int i = 0; i < 1000; i++) m[i] = i;
         Assert.Equal(1000, m.Count);
         m.Clear();
@@ -30,7 +30,7 @@ public class ExtraTests
     [Fact]
     public void Clear_Under_Concurrent_Writers_Never_Corrupts()
     {
-        var m = new LockFreeSkipListDictionary<int, int>();
+        var m = new ConcurrentSkipListDictionary<int, int>();
         using var stop = new CancellationTokenSource();
         var workers = new List<Task>();
         for (int t = 0; t < Threads; t++)
@@ -81,7 +81,7 @@ public class ExtraTests
     [Fact]
     public void Hot_Small_Keyset_Exercises_Markers_And_Helping()
     {
-        var m = new LockFreeSkipListDictionary<int, int>();
+        var m = new ConcurrentSkipListDictionary<int, int>();
         const int keys = 64;
         int threads = Threads;
 
@@ -127,7 +127,7 @@ public class ExtraTests
     [Fact]
     public void GetOrAdd_Is_Atomic_Under_Contention()
     {
-        var m = new LockFreeSkipListDictionary<int, int>();
+        var m = new ConcurrentSkipListDictionary<int, int>();
         const int keys = 10_000;
         int threads = Threads;
         var results = new int[threads][];

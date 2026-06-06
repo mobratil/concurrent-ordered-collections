@@ -25,7 +25,7 @@ namespace Ordered;
 ///
 /// Lock order is always parent-before-child (top-down), so there is no deadlock.
 /// </summary>
-public sealed class ConcurrentBPlusTree<TKey, TValue>
+public sealed class ConcurrentBTreeDictionary<TKey, TValue>
     : IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>
 {
     // ---------------------------------------------------------------------
@@ -102,7 +102,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
 
     /// <param name="order">Node fan-out (max keys per node). Default 64.</param>
     /// <param name="comparer">Key ordering; defaults to <see cref="Comparer{T}.Default"/>.</param>
-    public ConcurrentBPlusTree(int order = 64, IComparer<TKey>? comparer = null)
+    public ConcurrentBTreeDictionary(int order = 64, IComparer<TKey>? comparer = null)
     {
         if (order < 3) throw new ArgumentOutOfRangeException(nameof(order), "order must be >= 3");
         _max = order;
@@ -1007,7 +1007,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
     public ICollection<TValue> Values { get { var l = new List<TValue>(); foreach (var kv in this) l.Add(kv.Value); return l; } }
     IEnumerable<TKey> IReadOnlyDictionary<TKey, TValue>.Keys => Keys;
     IEnumerable<TValue> IReadOnlyDictionary<TKey, TValue>.Values => Values;
-    public IEnumerable<TKey> DescendingKeys { get { foreach (var kv in DescendingMap()) yield return kv.Key; } }
+    public IEnumerable<TKey> DescendingKeys { get { foreach (var kv in Reverse()) yield return kv.Key; } }
 
     // =====================================================================
     //  Clear, conveniences, functional helpers (ConcurrentDictionary parity)
@@ -1060,7 +1060,6 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
         }
     }
 
-    public TValue ComputeIfAbsent(TKey key, Func<TKey, TValue> mappingFunction) => GetOrAdd(key, mappingFunction);
 
     public bool ComputeIfPresent(TKey key, Func<TKey, TValue, TValue> remappingFunction, out TValue newValue)
     {
@@ -1098,20 +1097,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
         }
     }
 
-    public TValue Merge(TKey key, TValue value, Func<TValue, TValue, TValue> remappingFunction)
-    {
-        for (; ; )
-        {
-            if (TryGetValue(key, out var cur))
-            {
-                var nv = remappingFunction(cur, value);
-                if (DoReplace(key, nv, true, cur)) return nv;
-            }
-            else if (TryAdd(key, value)) return value;
-        }
-    }
-
-    public void PutAll(IEnumerable<KeyValuePair<TKey, TValue>> items)
+    public void AddRange(IEnumerable<KeyValuePair<TKey, TValue>> items)
     {
         foreach (var kv in items) this[kv.Key] = kv.Value;
     }
@@ -1203,25 +1189,25 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
     // =====================================================================
     //  NavigableMap views
     // =====================================================================
-    public RangeView SubMap(TKey fromKey, TKey toKey) => SubMap(fromKey, true, toKey, false);
-    public RangeView SubMap(TKey fromKey, bool fromInclusive, TKey toKey, bool toInclusive)
+    public RangeView GetViewBetween(TKey fromKey, TKey toKey) => GetViewBetween(fromKey, true, toKey, false);
+    public RangeView GetViewBetween(TKey fromKey, bool fromInclusive, TKey toKey, bool toInclusive)
         => new(this, true, fromKey, fromInclusive, true, toKey, toInclusive, descending: false);
-    public RangeView HeadMap(TKey toKey, bool inclusive = false)
+    public RangeView GetViewTo(TKey toKey, bool inclusive = false)
         => new(this, false, default!, false, true, toKey, inclusive, descending: false);
-    public RangeView TailMap(TKey fromKey, bool inclusive = true)
+    public RangeView GetViewFrom(TKey fromKey, bool inclusive = true)
         => new(this, true, fromKey, inclusive, false, default!, false, descending: false);
-    public RangeView DescendingMap()
+    public RangeView Reverse()
         => new(this, false, default!, false, false, default!, false, descending: true);
 
     /// <summary>A live, navigable view over a key range (and/or reversed). Reads/scans use the native
     /// leaf chain; writes are bounds-checked and delegate to the parent. Weakly consistent, like the parent.</summary>
     public sealed class RangeView : IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>
     {
-        private readonly ConcurrentBPlusTree<TKey, TValue> _p;
+        private readonly ConcurrentBTreeDictionary<TKey, TValue> _p;
         private readonly bool _hasLo, _loInc, _hasHi, _hiInc, _desc;
         private readonly TKey _lo, _hi;
 
-        internal RangeView(ConcurrentBPlusTree<TKey, TValue> p, bool hasLo, TKey lo, bool loInc, bool hasHi, TKey hi, bool hiInc, bool descending)
+        internal RangeView(ConcurrentBTreeDictionary<TKey, TValue> p, bool hasLo, TKey lo, bool loInc, bool hasHi, TKey hi, bool hiInc, bool descending)
         { _p = p; _hasLo = hasLo; _lo = lo; _loInc = loInc; _hasHi = hasHi; _hi = hi; _hiInc = hiInc; _desc = descending; }
 
         private bool TooLow(TKey k) { if (!_hasLo) return false; int c = _p._cmp.Compare(k, _lo); return c < 0 || (c == 0 && !_loInc); }
@@ -1292,7 +1278,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
             ArgumentNullException.ThrowIfNull(array);
             foreach (var kv in this) { if (arrayIndex >= array.Length) throw new ArgumentException("Destination array is not long enough."); array[arrayIndex++] = kv; }
         }
-        public RangeView DescendingMap() => new(_p, _hasLo, _lo, _loInc, _hasHi, _hi, _hiInc, !_desc);
+        public RangeView Reverse() => new(_p, _hasLo, _lo, _loInc, _hasHi, _hi, _hiInc, !_desc);
     }
 
     /// <summary>Test hook: total keys actually present in the leaf chain (quiescent only).</summary>

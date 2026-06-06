@@ -99,7 +99,7 @@ public class ParallelRangeStressTests
         const int sLo = 27_000, sHi = 29_000;               // stable band, never mutated
         const int stableCount = sHi - sLo;
         for (int k = 0; k < n; k++) d[k] = k;
-        var view = d.SubMap(lo, hi);
+        var view = d.GetViewBetween(lo, hi);
 
         using var stop = new CancellationTokenSource();
         var writers = Spawn(Threads, tid =>
@@ -148,7 +148,7 @@ public class ParallelRangeStressTests
         var d = New(kind, order);
         const int n = 60_000, lo = 20_000, hi = 40_000;
         for (int k = 0; k < n; k++) d[k] = k;
-        var view = d.SubMap(lo, hi);
+        var view = d.GetViewBetween(lo, hi);
 
         using var stop = new CancellationTokenSource();
         var writers = Spawn(Threads, tid =>
@@ -194,7 +194,7 @@ public class ParallelRangeStressTests
         var d = New(kind, order);
         const int n = 60_000, lo = 20_000, hi = 25_000;
         for (int k = 0; k < n; k++) d[k] = k;
-        var view = d.SubMap(lo, hi);
+        var view = d.GetViewBetween(lo, hi);
 
         using var stop = new CancellationTokenSource();
         var writers = Spawn(Threads, tid =>
@@ -236,7 +236,7 @@ public class ParallelRangeStressTests
         var d = New(kind, order);
         const int n = 40_000, lo = 10_000, hi = 20_000;
         for (int k = 0; k < n; k++) d[k] = k;
-        var desc = d.SubMap(lo, true, hi, false).DescendingMap();
+        var desc = d.GetViewBetween(lo, true, hi, false).Reverse();
 
         using var stop = new CancellationTokenSource();
         var writers = Spawn(Threads, tid =>
@@ -276,7 +276,7 @@ public class ParallelRangeStressTests
     {
         var d = New(kind, order);
         const int lo = 1_000, hi = 21_000;     // 20k in-range keys
-        var view = d.SubMap(lo, hi);
+        var view = d.GetViewBetween(lo, hi);
         long succeeded = 0;
 
         Parallel.For(0, Threads, _ =>
@@ -307,7 +307,7 @@ public class ParallelRangeStressTests
     {
         var d = New(kind, order);
         const int n = 100_000, lo = 30_000, hi = 70_000;
-        var view = d.SubMap(lo, hi);
+        var view = d.GetViewBetween(lo, hi);
 
         Parallel.For(0, Threads, _ =>
         {
@@ -399,7 +399,7 @@ public class ParallelRangeStressTests
     {
         var d = New(kind, order);
         const int hot = 256, lo = 0, hi = hot;
-        var view = d.SubMap(lo, hi);
+        var view = d.GetViewBetween(lo, hi);
 
         using var stop = new CancellationTokenSource();
         var writers = Spawn(Threads, tid =>
@@ -470,7 +470,7 @@ public class ParallelRangeStressTests
         StopAll(stop, writers);
 
         var asc = d.Select(kv => kv.Key).ToList();
-        var desc = d.DescendingMap().Select(kv => kv.Key).ToList();
+        var desc = d.Reverse().Select(kv => kv.Key).ToList();
         Assert.Equal(asc.Count, d.Count);
         asc.Reverse();
         Assert.Equal(asc, desc);

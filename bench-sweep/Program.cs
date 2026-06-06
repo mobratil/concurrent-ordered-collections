@@ -7,7 +7,7 @@ using System.Collections.Generic;
 using LockFree;
 using Ordered;
 
-// Headless scaling sweep -> CSV on stdout. Compares skip list vs OLC ConcurrentBPlusTree vs B-link, across
+// Headless scaling sweep -> CSV on stdout. Compares skip list vs OLC ConcurrentBTreeDictionary vs B-link, across
 // thread counts, for three modes (read-only, write-only, mixed). Best-of-N per cell. Designed for a
 // many-core Linux box; run under numactl to get single-node vs spanning. Env knobs:
 //   SWEEP_THREADS   comma list of thread counts (default "1,2,4,8,16,32,48,64")
@@ -24,8 +24,8 @@ class Sweep
     static string Label = "";
 
     interface IMap { void Put(long k); bool Get(long k); void Rem(long k); }
-    sealed class SkipMap : IMap { readonly LockFreeSkipListDictionary<long, long> m = new(); public void Put(long k) => m[k] = k; public bool Get(long k) => m.TryGetValue(k, out _); public void Rem(long k) => m.TryRemove(k, out _); }
-    sealed class BTreeMap : IMap { readonly ConcurrentBPlusTree<long, long> m = new(Order); public void Put(long k) => m[k] = k; public bool Get(long k) => m.TryGetValue(k, out _); public void Rem(long k) => m.TryRemove(k, out _); }
+    sealed class SkipMap : IMap { readonly ConcurrentSkipListDictionary<long, long> m = new(); public void Put(long k) => m[k] = k; public bool Get(long k) => m.TryGetValue(k, out _); public void Rem(long k) => m.TryRemove(k, out _); }
+    sealed class BTreeMap : IMap { readonly ConcurrentBTreeDictionary<long, long> m = new(Order); public void Put(long k) => m[k] = k; public bool Get(long k) => m.TryGetValue(k, out _); public void Rem(long k) => m.TryRemove(k, out _); }
     sealed class BLinkMap : IMap { readonly BLinkTree<long, long> m = new(Order); public void Put(long k) => m[k] = k; public bool Get(long k) => m.TryGetValue(k, out _); public void Rem(long k) => m.TryRemove(k, out _); }
 
     // mode: 0 read-only, 1 write-only (50/50 put/remove), 2 mixed (half threads read, half write)

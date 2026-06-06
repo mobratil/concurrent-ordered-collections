@@ -29,7 +29,7 @@ namespace LockFree;
 /// successful CAS that publishes its effect (or the volatile read of the value field
 /// for lookups). Concurrent readers never block writers and vice-versa.
 /// </summary>
-public sealed class LockFreeSkipListDictionary<TKey, TValue>
+public sealed class ConcurrentSkipListDictionary<TKey, TValue>
     : IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>
 {
     // Sentinel stored in the base header node's value field. Distinguishes the
@@ -47,9 +47,9 @@ public sealed class LockFreeSkipListDictionary<TKey, TValue>
     // TryRemoveFirst). Weakly consistent under concurrency, exact when quiescent.
     private readonly StripedCounter _count = new();
 
-    public LockFreeSkipListDictionary() : this(Comparer<TKey>.Default) { }
+    public ConcurrentSkipListDictionary() : this(Comparer<TKey>.Default) { }
 
-    public LockFreeSkipListDictionary(IComparer<TKey> comparer)
+    public ConcurrentSkipListDictionary(IComparer<TKey> comparer)
     {
         _comparer = comparer ?? throw new ArgumentNullException(nameof(comparer));
         // Base header node: key is irrelevant, value == BaseHeader sentinel.
@@ -813,12 +813,12 @@ public sealed class LockFreeSkipListDictionary<TKey, TValue>
     /// <summary>Allocation-free ascending struct enumerator over the live mappings.</summary>
     public struct Enumerator : IEnumerator<KeyValuePair<TKey, TValue>>
     {
-        private readonly LockFreeSkipListDictionary<TKey, TValue> _owner;
+        private readonly ConcurrentSkipListDictionary<TKey, TValue> _owner;
         private Node? _node;
         private bool _started;
         private KeyValuePair<TKey, TValue> _current;
 
-        internal Enumerator(LockFreeSkipListDictionary<TKey, TValue> owner)
+        internal Enumerator(ConcurrentSkipListDictionary<TKey, TValue> owner)
         {
             _owner = owner;
             _node = null;
@@ -1014,15 +1014,12 @@ public sealed class LockFreeSkipListDictionary<TKey, TValue>
     // =====================================================================
 
     /// <summary>Inserts or overwrites every entry from <paramref name="items"/>. (Map.putAll.)</summary>
-    public void PutAll(IEnumerable<KeyValuePair<TKey, TValue>> items)
+    public void AddRange(IEnumerable<KeyValuePair<TKey, TValue>> items)
     {
         ArgumentNullException.ThrowIfNull(items);
         foreach (var kv in items) DoPut(kv.Key, kv.Value, onlyIfAbsent: false, out _);
     }
 
-    /// <summary>Returns the existing value, or computes one with <paramref name="mappingFunction"/>, inserts and
-    /// returns it. (Map.computeIfAbsent — same as <see cref="GetOrAdd(TKey, Func{TKey, TValue})"/>.)</summary>
-    public TValue ComputeIfAbsent(TKey key, Func<TKey, TValue> mappingFunction) => GetOrAdd(key, mappingFunction);
 
     /// <summary>If the key is present, recomputes its value from the current one and stores it; returns false if
     /// absent. (Map.computeIfPresent — note: unlike Java, a value type cannot signal removal via null.)</summary>
@@ -1034,25 +1031,6 @@ public sealed class LockFreeSkipListDictionary<TKey, TValue>
             if (!DoGet(key, out var current)) { newValue = default!; return false; }
             var computed = remappingFunction(key, current);
             if (DoReplace(key, computed, current)) { newValue = computed; return true; }
-        }
-    }
-
-    /// <summary>If the key is absent, stores <paramref name="value"/>; otherwise stores
-    /// <paramref name="remappingFunction"/>(oldValue, value). Returns the value now stored. (Map.merge.)</summary>
-    public TValue Merge(TKey key, TValue value, Func<TValue, TValue, TValue> remappingFunction)
-    {
-        ArgumentNullException.ThrowIfNull(remappingFunction);
-        for (; ; )
-        {
-            if (DoGet(key, out var current))
-            {
-                var merged = remappingFunction(current, value);
-                if (DoReplace(key, merged, current)) return merged;
-            }
-            else if (DoPut(key, value, onlyIfAbsent: true, out _))
-            {
-                return value;
-            }
         }
     }
 
@@ -1078,44 +1056,44 @@ public sealed class LockFreeSkipListDictionary<TKey, TValue>
 
     /// <summary>A live view over keys in [<paramref name="fromKey"/>, <paramref name="toKey"/>) (from inclusive,
     /// to exclusive — like SortedMap.subMap). Reflects and can mutate the parent within range.</summary>
-    public RangeView SubMap(TKey fromKey, TKey toKey) => SubMap(fromKey, true, toKey, false);
+    public RangeView GetViewBetween(TKey fromKey, TKey toKey) => GetViewBetween(fromKey, true, toKey, false);
 
     /// <summary>A live view over keys between the two bounds, with explicit inclusivity (NavigableMap.subMap).</summary>
-    public RangeView SubMap(TKey fromKey, bool fromInclusive, TKey toKey, bool toInclusive)
+    public RangeView GetViewBetween(TKey fromKey, bool fromInclusive, TKey toKey, bool toInclusive)
         => new(this, true, fromKey, fromInclusive, true, toKey, toInclusive, descending: false);
 
     /// <summary>A live view over keys &lt; <paramref name="toKey"/> (or ≤ when inclusive). (NavigableMap.headMap.)</summary>
-    public RangeView HeadMap(TKey toKey, bool inclusive = false)
+    public RangeView GetViewTo(TKey toKey, bool inclusive = false)
         => new(this, false, default!, false, true, toKey, inclusive, descending: false);
 
     /// <summary>A live view over keys ≥ <paramref name="fromKey"/> (or &gt; when not inclusive). (NavigableMap.tailMap.)</summary>
-    public RangeView TailMap(TKey fromKey, bool inclusive = true)
+    public RangeView GetViewFrom(TKey fromKey, bool inclusive = true)
         => new(this, true, fromKey, inclusive, false, default!, false, descending: false);
 
     /// <summary>A live, reverse-ordered view of the whole dictionary. (NavigableMap.descendingMap.)</summary>
-    public RangeView DescendingMap()
+    public RangeView Reverse()
         => new(this, false, default!, false, false, default!, false, descending: true);
 
     /// <summary>The keys in descending order. (NavigableMap.descendingKeySet.)</summary>
     public IEnumerable<TKey> DescendingKeys
     {
-        get { foreach (var kv in DescendingMap()) yield return kv.Key; }
+        get { foreach (var kv in Reverse()) yield return kv.Key; }
     }
 
     /// <summary>
     /// A live, navigable view of the parent restricted to a key range and/or reversed.
     /// Reads and writes pass through to the parent (writes are bounds-checked); the view
     /// is weakly consistent under concurrent modification, exactly like the parent.
-    /// Returned by <see cref="SubMap(TKey,TKey)"/> / <see cref="HeadMap"/> /
-    /// <see cref="TailMap"/> / <see cref="DescendingMap"/>.
+    /// Returned by <see cref="GetViewBetween(TKey,TKey)"/> / <see cref="GetViewTo"/> /
+    /// <see cref="GetViewFrom"/> / <see cref="Reverse"/>.
     /// </summary>
     public sealed class RangeView : IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>
     {
-        private readonly LockFreeSkipListDictionary<TKey, TValue> _p;
+        private readonly ConcurrentSkipListDictionary<TKey, TValue> _p;
         private readonly bool _hasLo, _loInc, _hasHi, _hiInc, _desc;
         private readonly TKey _lo, _hi;
 
-        internal RangeView(LockFreeSkipListDictionary<TKey, TValue> parent,
+        internal RangeView(ConcurrentSkipListDictionary<TKey, TValue> parent,
             bool hasLo, TKey lo, bool loInc, bool hasHi, TKey hi, bool hiInc, bool descending)
         {
             _p = parent;
@@ -1263,7 +1241,7 @@ public sealed class LockFreeSkipListDictionary<TKey, TValue>
         }
 
         /// <summary>Reverses the iteration order of this view. (NavigableMap.descendingMap.)</summary>
-        public RangeView DescendingMap()
+        public RangeView Reverse()
             => new(_p, _hasLo, _lo, _loInc, _hasHi, _hi, _hiInc, !_desc);
     }
 

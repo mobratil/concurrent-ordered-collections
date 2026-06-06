@@ -24,7 +24,7 @@ public class ConcurrencyTests
     [Fact]
     public void Disjoint_Parallel_Inserts_Preserve_All_Entries()
     {
-        var map = new LockFreeSkipListDictionary<long, long>();
+        var map = new ConcurrentSkipListDictionary<long, long>();
         const int perThread = 50_000;
         int threads = Threads;
 
@@ -74,7 +74,7 @@ public class ConcurrencyTests
     [Fact]
     public void Concurrent_TryAdd_Of_Same_Keys_Succeeds_Exactly_Once()
     {
-        var map = new LockFreeSkipListDictionary<int, int>();
+        var map = new ConcurrentSkipListDictionary<int, int>();
         const int keys = 20_000;
         int threads = Threads;
         long totalSucceeded = 0;
@@ -102,7 +102,7 @@ public class ConcurrencyTests
     [Fact]
     public void Concurrent_Remove_Of_Same_Keys_Succeeds_Exactly_Once()
     {
-        var map = new LockFreeSkipListDictionary<int, int>();
+        var map = new ConcurrentSkipListDictionary<int, int>();
         const int keys = 20_000;
         for (int k = 0; k < keys; k++) map[k] = k;
 
@@ -134,7 +134,7 @@ public class ConcurrencyTests
     [Fact]
     public void Concurrent_AddOrUpdate_And_Merge_Counters_Lose_No_Updates()
     {
-        var d = new LockFreeSkipListDictionary<int, long>();
+        var d = new ConcurrentSkipListDictionary<int, long>();
         const int keys = 256, rounds = 400;
         int threads = Threads;
 
@@ -144,7 +144,7 @@ public class ConcurrencyTests
                 for (int k = 0; k < keys; k++)
                 {
                     if ((k & 1) == 0) d.AddOrUpdate(k, 1, (_, old) => old + 1);
-                    else d.Merge(k, 1, (old, given) => old + given);
+                    else d.AddOrUpdate(k, 1, (_, old) => old + 1);
                 }
         });
 
@@ -163,7 +163,7 @@ public class ConcurrencyTests
     [Fact]
     public void Concurrent_PollFirst_Drains_Each_Key_Exactly_Once()
     {
-        var map = new LockFreeSkipListDictionary<int, int>();
+        var map = new ConcurrentSkipListDictionary<int, int>();
         const int keys = 100_000;
         for (int k = 0; k < keys; k++) map[k] = k;
 
@@ -194,7 +194,7 @@ public class ConcurrencyTests
     [Fact]
     public void Concurrent_PollFirst_And_PollLast_Never_Double_Claim()
     {
-        var map = new LockFreeSkipListDictionary<long, long>();
+        var map = new ConcurrentSkipListDictionary<long, long>();
         const int keys = 50_000;
         for (int k = 0; k < keys; k++) map[k] = k;
 
@@ -233,7 +233,7 @@ public class ConcurrencyTests
     [Fact]
     public void Mixed_Churn_Then_Deterministic_Drain_Leaves_Exact_Survivors()
     {
-        var map = new LockFreeSkipListDictionary<int, int>();
+        var map = new ConcurrentSkipListDictionary<int, int>();
         const int keySpace = 100_000;
         int threads = Threads;
 
@@ -282,7 +282,7 @@ public class ConcurrencyTests
     [Fact]
     public void Enumeration_Is_Always_Sorted_Under_Concurrent_Mutation()
     {
-        var map = new LockFreeSkipListDictionary<int, int>();
+        var map = new ConcurrentSkipListDictionary<int, int>();
         const int keySpace = 30_000;
         for (int k = 0; k < keySpace; k += 2) map[k] = k;
 
@@ -332,7 +332,7 @@ public class ConcurrencyTests
     [Fact]
     public void Producer_Consumer_Every_Key_Consumed_Exactly_Once()
     {
-        var map = new LockFreeSkipListDictionary<long, long>();
+        var map = new ConcurrentSkipListDictionary<long, long>();
         const int totalKeys = 200_000;
         int producers = Math.Max(2, Threads / 2);
         int consumers = Math.Max(2, Threads / 2);

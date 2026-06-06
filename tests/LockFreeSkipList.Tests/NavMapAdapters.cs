@@ -26,7 +26,7 @@ public interface INavView<K, V> : IEnumerable<KeyValuePair<K, V>>
     bool TryGetFloor(K key, out KeyValuePair<K, V> e);
     bool TryGetHigher(K key, out KeyValuePair<K, V> e);
     bool TryGetLower(K key, out KeyValuePair<K, V> e);
-    INavView<K, V> DescendingMap();
+    INavView<K, V> Reverse();
 }
 
 public interface INavMap<K, V> : IEnumerable<KeyValuePair<K, V>>
@@ -41,11 +41,11 @@ public interface INavMap<K, V> : IEnumerable<KeyValuePair<K, V>>
     bool TryGetFloor(K key, out KeyValuePair<K, V> e);
     bool TryGetHigher(K key, out KeyValuePair<K, V> e);
     bool TryGetLower(K key, out KeyValuePair<K, V> e);
-    INavView<K, V> SubMap(K from, K to);
-    INavView<K, V> SubMap(K from, bool fromInc, K to, bool toInc);
-    INavView<K, V> HeadMap(K to, bool inclusive);
-    INavView<K, V> TailMap(K from, bool inclusive);
-    INavView<K, V> DescendingMap();
+    INavView<K, V> GetViewBetween(K from, K to);
+    INavView<K, V> GetViewBetween(K from, bool fromInc, K to, bool toInc);
+    INavView<K, V> GetViewTo(K to, bool inclusive);
+    INavView<K, V> GetViewFrom(K from, bool inclusive);
+    INavView<K, V> Reverse();
     void Validate();   // structural self-check in a quiescent phase; no-op where unsupported
 }
 
@@ -65,8 +65,8 @@ public static class NavMapFactory
 // ---------------- skip list ----------------
 internal sealed class SkipNavMap<K, V> : INavMap<K, V> where K : notnull
 {
-    private readonly LockFreeSkipListDictionary<K, V> _m;
-    public SkipNavMap(IComparer<K>? comparer = null) => _m = new LockFreeSkipListDictionary<K, V>(comparer ?? Comparer<K>.Default);
+    private readonly ConcurrentSkipListDictionary<K, V> _m;
+    public SkipNavMap(IComparer<K>? comparer = null) => _m = new ConcurrentSkipListDictionary<K, V>(comparer ?? Comparer<K>.Default);
     public V this[K key] { get => _m[key]; set => _m[key] = value; }
     public bool TryAdd(K key, V value) => _m.TryAdd(key, value);
     public bool TryRemove(K key, out V value) => _m.TryRemove(key, out value);
@@ -77,11 +77,11 @@ internal sealed class SkipNavMap<K, V> : INavMap<K, V> where K : notnull
     public bool TryGetFloor(K key, out KeyValuePair<K, V> e) => _m.TryGetFloor(key, out e);
     public bool TryGetHigher(K key, out KeyValuePair<K, V> e) => _m.TryGetHigher(key, out e);
     public bool TryGetLower(K key, out KeyValuePair<K, V> e) => _m.TryGetLower(key, out e);
-    public INavView<K, V> SubMap(K from, K to) => new SkipNavView<K, V>(_m.SubMap(from, to));
-    public INavView<K, V> SubMap(K from, bool fi, K to, bool ti) => new SkipNavView<K, V>(_m.SubMap(from, fi, to, ti));
-    public INavView<K, V> HeadMap(K to, bool inc) => new SkipNavView<K, V>(_m.HeadMap(to, inc));
-    public INavView<K, V> TailMap(K from, bool inc) => new SkipNavView<K, V>(_m.TailMap(from, inc));
-    public INavView<K, V> DescendingMap() => new SkipNavView<K, V>(_m.DescendingMap());
+    public INavView<K, V> GetViewBetween(K from, K to) => new SkipNavView<K, V>(_m.GetViewBetween(from, to));
+    public INavView<K, V> GetViewBetween(K from, bool fi, K to, bool ti) => new SkipNavView<K, V>(_m.GetViewBetween(from, fi, to, ti));
+    public INavView<K, V> GetViewTo(K to, bool inc) => new SkipNavView<K, V>(_m.GetViewTo(to, inc));
+    public INavView<K, V> GetViewFrom(K from, bool inc) => new SkipNavView<K, V>(_m.GetViewFrom(from, inc));
+    public INavView<K, V> Reverse() => new SkipNavView<K, V>(_m.Reverse());
     public void Validate() { }   // no structural validator on the skip list
     public IEnumerator<KeyValuePair<K, V>> GetEnumerator() => _m.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -89,8 +89,8 @@ internal sealed class SkipNavMap<K, V> : INavMap<K, V> where K : notnull
 
 internal sealed class SkipNavView<K, V> : INavView<K, V> where K : notnull
 {
-    private readonly LockFreeSkipListDictionary<K, V>.RangeView _v;
-    public SkipNavView(LockFreeSkipListDictionary<K, V>.RangeView v) => _v = v;
+    private readonly ConcurrentSkipListDictionary<K, V>.RangeView _v;
+    public SkipNavView(ConcurrentSkipListDictionary<K, V>.RangeView v) => _v = v;
     public V this[K key] { set => _v[key] = value; }
     public bool TryAdd(K key, V value) => _v.TryAdd(key, value);
     public bool Remove(K key) => _v.Remove(key);
@@ -101,7 +101,7 @@ internal sealed class SkipNavView<K, V> : INavView<K, V> where K : notnull
     public bool TryGetFloor(K key, out KeyValuePair<K, V> e) => _v.TryGetFloor(key, out e);
     public bool TryGetHigher(K key, out KeyValuePair<K, V> e) => _v.TryGetHigher(key, out e);
     public bool TryGetLower(K key, out KeyValuePair<K, V> e) => _v.TryGetLower(key, out e);
-    public INavView<K, V> DescendingMap() => new SkipNavView<K, V>(_v.DescendingMap());
+    public INavView<K, V> Reverse() => new SkipNavView<K, V>(_v.Reverse());
     public IEnumerator<KeyValuePair<K, V>> GetEnumerator() => _v.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
@@ -109,8 +109,8 @@ internal sealed class SkipNavView<K, V> : INavView<K, V> where K : notnull
 // ---------------- OLC B+ tree ----------------
 internal sealed class BPlusNavMap<K, V> : INavMap<K, V> where K : notnull
 {
-    private readonly ConcurrentBPlusTree<K, V> _m;
-    public BPlusNavMap(int order, IComparer<K>? comparer = null) => _m = new ConcurrentBPlusTree<K, V>(order, comparer);
+    private readonly ConcurrentBTreeDictionary<K, V> _m;
+    public BPlusNavMap(int order, IComparer<K>? comparer = null) => _m = new ConcurrentBTreeDictionary<K, V>(order, comparer);
     public V this[K key] { get => _m[key]; set => _m[key] = value; }
     public bool TryAdd(K key, V value) => _m.TryAdd(key, value);
     public bool TryRemove(K key, out V value) => _m.TryRemove(key, out value);
@@ -121,11 +121,11 @@ internal sealed class BPlusNavMap<K, V> : INavMap<K, V> where K : notnull
     public bool TryGetFloor(K key, out KeyValuePair<K, V> e) => _m.TryGetFloor(key, out e);
     public bool TryGetHigher(K key, out KeyValuePair<K, V> e) => _m.TryGetHigher(key, out e);
     public bool TryGetLower(K key, out KeyValuePair<K, V> e) => _m.TryGetLower(key, out e);
-    public INavView<K, V> SubMap(K from, K to) => new BPlusNavView<K, V>(_m.SubMap(from, to));
-    public INavView<K, V> SubMap(K from, bool fi, K to, bool ti) => new BPlusNavView<K, V>(_m.SubMap(from, fi, to, ti));
-    public INavView<K, V> HeadMap(K to, bool inc) => new BPlusNavView<K, V>(_m.HeadMap(to, inc));
-    public INavView<K, V> TailMap(K from, bool inc) => new BPlusNavView<K, V>(_m.TailMap(from, inc));
-    public INavView<K, V> DescendingMap() => new BPlusNavView<K, V>(_m.DescendingMap());
+    public INavView<K, V> GetViewBetween(K from, K to) => new BPlusNavView<K, V>(_m.GetViewBetween(from, to));
+    public INavView<K, V> GetViewBetween(K from, bool fi, K to, bool ti) => new BPlusNavView<K, V>(_m.GetViewBetween(from, fi, to, ti));
+    public INavView<K, V> GetViewTo(K to, bool inc) => new BPlusNavView<K, V>(_m.GetViewTo(to, inc));
+    public INavView<K, V> GetViewFrom(K from, bool inc) => new BPlusNavView<K, V>(_m.GetViewFrom(from, inc));
+    public INavView<K, V> Reverse() => new BPlusNavView<K, V>(_m.Reverse());
     public void Validate() => _m.Validate();
     public IEnumerator<KeyValuePair<K, V>> GetEnumerator() => _m.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -133,8 +133,8 @@ internal sealed class BPlusNavMap<K, V> : INavMap<K, V> where K : notnull
 
 internal sealed class BPlusNavView<K, V> : INavView<K, V> where K : notnull
 {
-    private readonly ConcurrentBPlusTree<K, V>.RangeView _v;
-    public BPlusNavView(ConcurrentBPlusTree<K, V>.RangeView v) => _v = v;
+    private readonly ConcurrentBTreeDictionary<K, V>.RangeView _v;
+    public BPlusNavView(ConcurrentBTreeDictionary<K, V>.RangeView v) => _v = v;
     public V this[K key] { set => _v[key] = value; }
     public bool TryAdd(K key, V value) => _v.TryAdd(key, value);
     public bool Remove(K key) => _v.Remove(key);
@@ -145,7 +145,7 @@ internal sealed class BPlusNavView<K, V> : INavView<K, V> where K : notnull
     public bool TryGetFloor(K key, out KeyValuePair<K, V> e) => _v.TryGetFloor(key, out e);
     public bool TryGetHigher(K key, out KeyValuePair<K, V> e) => _v.TryGetHigher(key, out e);
     public bool TryGetLower(K key, out KeyValuePair<K, V> e) => _v.TryGetLower(key, out e);
-    public INavView<K, V> DescendingMap() => new BPlusNavView<K, V>(_v.DescendingMap());
+    public INavView<K, V> Reverse() => new BPlusNavView<K, V>(_v.Reverse());
     public IEnumerator<KeyValuePair<K, V>> GetEnumerator() => _v.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
@@ -165,11 +165,11 @@ internal sealed class BLinkNavMap<K, V> : INavMap<K, V> where K : notnull
     public bool TryGetFloor(K key, out KeyValuePair<K, V> e) => _m.TryGetFloor(key, out e);
     public bool TryGetHigher(K key, out KeyValuePair<K, V> e) => _m.TryGetHigher(key, out e);
     public bool TryGetLower(K key, out KeyValuePair<K, V> e) => _m.TryGetLower(key, out e);
-    public INavView<K, V> SubMap(K from, K to) => new BLinkNavView<K, V>(_m.SubMap(from, to));
-    public INavView<K, V> SubMap(K from, bool fi, K to, bool ti) => new BLinkNavView<K, V>(_m.SubMap(from, fi, to, ti));
-    public INavView<K, V> HeadMap(K to, bool inc) => new BLinkNavView<K, V>(_m.HeadMap(to, inc));
-    public INavView<K, V> TailMap(K from, bool inc) => new BLinkNavView<K, V>(_m.TailMap(from, inc));
-    public INavView<K, V> DescendingMap() => new BLinkNavView<K, V>(_m.DescendingMap());
+    public INavView<K, V> GetViewBetween(K from, K to) => new BLinkNavView<K, V>(_m.GetViewBetween(from, to));
+    public INavView<K, V> GetViewBetween(K from, bool fi, K to, bool ti) => new BLinkNavView<K, V>(_m.GetViewBetween(from, fi, to, ti));
+    public INavView<K, V> GetViewTo(K to, bool inc) => new BLinkNavView<K, V>(_m.GetViewTo(to, inc));
+    public INavView<K, V> GetViewFrom(K from, bool inc) => new BLinkNavView<K, V>(_m.GetViewFrom(from, inc));
+    public INavView<K, V> Reverse() => new BLinkNavView<K, V>(_m.Reverse());
     public void Validate() => _m.Validate();
     public IEnumerator<KeyValuePair<K, V>> GetEnumerator() => _m.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -189,7 +189,7 @@ internal sealed class BLinkNavView<K, V> : INavView<K, V> where K : notnull
     public bool TryGetFloor(K key, out KeyValuePair<K, V> e) => _v.TryGetFloor(key, out e);
     public bool TryGetHigher(K key, out KeyValuePair<K, V> e) => _v.TryGetHigher(key, out e);
     public bool TryGetLower(K key, out KeyValuePair<K, V> e) => _v.TryGetLower(key, out e);
-    public INavView<K, V> DescendingMap() => new BLinkNavView<K, V>(_v.DescendingMap());
+    public INavView<K, V> Reverse() => new BLinkNavView<K, V>(_v.Reverse());
     public IEnumerator<KeyValuePair<K, V>> GetEnumerator() => _v.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }

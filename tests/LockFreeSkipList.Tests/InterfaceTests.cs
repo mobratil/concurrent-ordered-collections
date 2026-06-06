@@ -13,7 +13,7 @@ public class InterfaceTests
     [Fact]
     public void Implements_The_Standard_Dictionary_Interfaces()
     {
-        var d = new LockFreeSkipListDictionary<int, string>();
+        var d = new ConcurrentSkipListDictionary<int, string>();
         Assert.IsAssignableFrom<IDictionary<int, string>>(d);
         Assert.IsAssignableFrom<IReadOnlyDictionary<int, string>>(d);
         Assert.IsAssignableFrom<ICollection<KeyValuePair<int, string>>>(d);
@@ -23,7 +23,7 @@ public class InterfaceTests
     [Fact]
     public void Works_Through_IDictionary_Reference()
     {
-        IDictionary<int, string> d = new LockFreeSkipListDictionary<int, string>();
+        IDictionary<int, string> d = new ConcurrentSkipListDictionary<int, string>();
         d.Add(1, "a");
         d[2] = "b";
         Assert.True(d.ContainsKey(1));
@@ -46,7 +46,7 @@ public class InterfaceTests
     [Fact]
     public void Works_Through_ICollection_Of_KeyValuePair()
     {
-        ICollection<KeyValuePair<int, string>> c = new LockFreeSkipListDictionary<int, string>();
+        ICollection<KeyValuePair<int, string>> c = new ConcurrentSkipListDictionary<int, string>();
         c.Add(new KeyValuePair<int, string>(1, "a"));
         c.Add(new KeyValuePair<int, string>(2, "b"));
 
@@ -65,7 +65,7 @@ public class InterfaceTests
     [Fact]
     public void CopyTo_Produces_Sorted_Snapshot()
     {
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         foreach (var k in new[] { 5, 1, 3, 2, 4 }) d[k] = k * 10;
 
         var array = new KeyValuePair<int, int>[7];
@@ -79,7 +79,7 @@ public class InterfaceTests
     [Fact]
     public void Works_Through_IReadOnlyDictionary_Reference()
     {
-        var concrete = new LockFreeSkipListDictionary<int, int>();
+        var concrete = new ConcurrentSkipListDictionary<int, int>();
         concrete[1] = 10;
         concrete[2] = 20;
 
@@ -95,7 +95,7 @@ public class InterfaceTests
     [Fact]
     public void Linq_Works_Via_IEnumerable()
     {
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         for (int i = 0; i < 10; i++) d[i] = i;
         // exercises IEnumerable<KeyValuePair<,>>
         Assert.Equal(45, d.Sum(kv => kv.Value));

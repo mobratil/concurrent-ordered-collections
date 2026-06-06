@@ -26,10 +26,10 @@ public class RangeViewConcurrencyTests
     [Fact]
     public void View_Writes_Plus_Dictionary_Reads_Leave_Out_Of_Range_Untouched()
     {
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         const int n = 120_000, lo = 40_000, hi = 80_000;   // view range [lo, hi)
         for (int k = 0; k < n; k++) d[k] = k;
-        var view = d.SubMap(lo, hi);
+        var view = d.GetViewBetween(lo, hi);
 
         using var stop = new CancellationTokenSource();
         var writers = new List<Task>();
@@ -87,10 +87,10 @@ public class RangeViewConcurrencyTests
     [Fact]
     public void Dictionary_Writes_Plus_View_Reads_Stay_Sorted_And_In_Range()
     {
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         const int n = 60_000, lo = 20_000, hi = 25_000;   // small range -> cheap view scans
         for (int k = 0; k < n; k++) d[k] = k;
-        var view = d.SubMap(lo, hi);
+        var view = d.GetViewBetween(lo, hi);
 
         using var stop = new CancellationTokenSource();
         var writers = new List<Task>();
@@ -138,10 +138,10 @@ public class RangeViewConcurrencyTests
     [Fact]
     public void Descending_View_Stays_Descending_Under_Concurrent_Mutation()
     {
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         const int n = 40_000, lo = 10_000, hi = 20_000;
         for (int k = 0; k < n; k++) d[k] = k;
-        var desc = d.SubMap(lo, true, hi, false).DescendingMap();
+        var desc = d.GetViewBetween(lo, true, hi, false).Reverse();
 
         using var stop = new CancellationTokenSource();
         var writers = new List<Task>();
@@ -184,9 +184,9 @@ public class RangeViewConcurrencyTests
     [Fact]
     public void Concurrent_View_TryAdd_Succeeds_Exactly_Once()
     {
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         const int lo = 1_000, hi = 21_000;               // 20k in-range keys
-        var view = d.SubMap(lo, hi);
+        var view = d.GetViewBetween(lo, hi);
         long succeeded = 0;
 
         Parallel.For(0, Threads, t =>
@@ -213,9 +213,9 @@ public class RangeViewConcurrencyTests
     [Fact]
     public void Interleaved_View_And_Parent_Writes_Keep_Structure_Consistent()
     {
-        var d = new LockFreeSkipListDictionary<long, long>();
+        var d = new ConcurrentSkipListDictionary<long, long>();
         const int n = 100_000, lo = 30_000, hi = 70_000;
-        var view = d.SubMap(lo, hi);
+        var view = d.GetViewBetween(lo, hi);
 
         Parallel.For(0, Threads, t =>
         {

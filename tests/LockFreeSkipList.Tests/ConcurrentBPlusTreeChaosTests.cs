@@ -28,7 +28,7 @@ public class ConcurrentBPlusTreeChaosTests
             ("zigzag", Enumerable.Range(0, n).Select(i => (i % 2 == 0) ? i / 2 : n - 1 - i / 2)),
         })
         {
-            var t = new ConcurrentBPlusTree<int, int>(order);
+            var t = new ConcurrentBTreeDictionary<int, int>(order);
             foreach (var k in keys) t[k] = k;
             t.Validate();                               // all leaves same depth -> balanced
             var (depth, internals, leaves, fill) = t.DebugStats();
@@ -43,7 +43,7 @@ public class ConcurrentBPlusTreeChaosTests
     [Fact]
     public void Heavy_Churn_Stays_Balanced_And_Reclaims_Drained_Leaves()
     {
-        var t = new ConcurrentBPlusTree<int, int>(order: 32);
+        var t = new ConcurrentBTreeDictionary<int, int>(order: 32);
         var model = new SortedDictionary<int, int>();
         var rng = new Random(12345);
         const int keySpace = 200_000;
@@ -92,7 +92,7 @@ public class ConcurrentBPlusTreeChaosTests
     [InlineData(64)]
     public void Draining_A_Range_Reclaims_Leaves_Deterministically(int order)
     {
-        var t = new ConcurrentBPlusTree<int, int>(order);
+        var t = new ConcurrentBTreeDictionary<int, int>(order);
         const int n = 50_000;
         for (int k = 0; k < n; k++) t[k] = k;
         var (_, _, leavesFull, _) = t.DebugStats();
@@ -117,7 +117,7 @@ public class ConcurrentBPlusTreeChaosTests
         // The case empty-leaf unlink can't touch: delete a RANDOM 90%, so almost no leaf empties
         // outright — they just go underfull. Sibling merge must coalesce them back toward half-full,
         // so leaf fill recovers (without merge it would sit at ~10%).
-        var t = new ConcurrentBPlusTree<int, int>(order);
+        var t = new ConcurrentBTreeDictionary<int, int>(order);
         const int n = 100_000;
         for (int k = 0; k < n; k++) t[k] = k;
         var (_, _, leavesFull, fillFull) = t.DebugStats();
@@ -147,7 +147,7 @@ public class ConcurrentBPlusTreeChaosTests
         // Recursive merge eliminates the skeleton entirely: draining the whole tree cascades merges
         // level by level and collapses single-child roots, returning to a single-leaf root (depth 0) —
         // regardless of how deep the tree got (order 4 builds a depth-8 tree of 100k keys).
-        var t = new ConcurrentBPlusTree<int, int>(order);
+        var t = new ConcurrentBTreeDictionary<int, int>(order);
         for (int k = 0; k < 100_000; k++) t[k] = k;
         int builtDepth = t.DebugStats().Depth;
         Assert.True(builtDepth >= 1);
@@ -170,7 +170,7 @@ public class ConcurrentBPlusTreeChaosTests
     [Fact]
     public void Concurrent_Drain_Reclaims_While_Staying_Correct()
     {
-        var t = new ConcurrentBPlusTree<long, long>(order: 16);
+        var t = new ConcurrentBTreeDictionary<long, long>(order: 16);
         int threads = Threads;
         const int partition = 40_000;
         // fill: each thread owns a disjoint contiguous block
@@ -210,7 +210,7 @@ public class ConcurrentBPlusTreeChaosTests
     [InlineData(6)]
     public void Concurrent_Cascade_Stress_Tiny_Order(int order)
     {
-        var t = new ConcurrentBPlusTree<long, long>(order);
+        var t = new ConcurrentBTreeDictionary<long, long>(order);
         int threads = Threads;
         const int partition = 30_000;
         var models = new HashSet<long>[threads];
@@ -263,7 +263,7 @@ public class ConcurrentBPlusTreeChaosTests
     [Fact]
     public void Concurrent_Disjoint_Chaos_With_Local_Models()
     {
-        var t = new ConcurrentBPlusTree<long, long>(order: 16);   // small order -> heavy split traffic
+        var t = new ConcurrentBTreeDictionary<long, long>(order: 16);   // small order -> heavy split traffic
         int threads = Threads;
         const int partition = 50_000;
         var models = new HashSet<long>[threads];
@@ -320,7 +320,7 @@ public class ConcurrentBPlusTreeChaosTests
     [Fact]
     public void Concurrent_Overlapping_Chaos_Then_Structure_Is_Valid()
     {
-        var t = new ConcurrentBPlusTree<int, int>(order: 8);
+        var t = new ConcurrentBTreeDictionary<int, int>(order: 8);
         const int keySpace = 40_000;
         for (int k = 0; k < keySpace; k += 3) t[k] = k;          // seed
 

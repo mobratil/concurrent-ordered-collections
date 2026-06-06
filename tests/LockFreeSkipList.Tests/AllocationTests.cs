@@ -25,7 +25,7 @@ public class AllocationTests
     [Fact]
     public void Reference_Value_Overwrite_And_Get_Are_Allocation_Free()
     {
-        var d = new LockFreeSkipListDictionary<int, string>();
+        var d = new ConcurrentSkipListDictionary<int, string>();
         d[1] = "x";
         const int n = 200_000;
 
@@ -41,7 +41,7 @@ public class AllocationTests
     [Fact]
     public void Value_Type_Overwrite_Allocates_The_Holder_But_Get_Does_Not()
     {
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         d[1] = 0;
         const int n = 200_000;
 
@@ -57,7 +57,7 @@ public class AllocationTests
     public void Present_Key_TryAdd_Does_Not_Allocate()
     {
         // Deferred allocation: a TryAdd that loses (key present) must allocate nothing.
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         d[1] = 1;
         long bytes = Measure(() => d.TryAdd(1, 99), 200_000);
         _out.WriteLine($"present-key TryAdd: {bytes} B");
@@ -69,7 +69,7 @@ public class AllocationTests
     {
         // `object` is the tricky case: a stored value is type-indistinguishable from the
         // internal sentinels, so the implementation must rely on reference identity.
-        var d = new LockFreeSkipListDictionary<int, object>();
+        var d = new ConcurrentSkipListDictionary<int, object>();
         d[1] = "a";
         d[2] = 42;          // user-boxed int, stored as a reference
         var marker = new object();
@@ -88,14 +88,14 @@ public class AllocationTests
     [Fact]
     public void Null_Values_Are_Rejected_For_Reference_Types()
     {
-        var d = new LockFreeSkipListDictionary<int, string>();
+        var d = new ConcurrentSkipListDictionary<int, string>();
         Assert.Throws<ArgumentNullException>(() => d[1] = null!);
         Assert.Throws<ArgumentNullException>(() => d.TryAdd(1, null!));
         Assert.Throws<ArgumentNullException>(() => d.Add(1, null!));
         d[1] = "ok";
         Assert.Throws<ArgumentNullException>(() => d.TryUpdate(1, null!, "ok"));
         // Nullable value types are value types -> holder path -> null is a normal value.
-        var nd = new LockFreeSkipListDictionary<int, int?>();
+        var nd = new ConcurrentSkipListDictionary<int, int?>();
         nd[1] = null;
         Assert.True(nd.TryGetValue(1, out var v) && v is null);
         Assert.True(nd.ContainsKey(1));
@@ -104,9 +104,9 @@ public class AllocationTests
     [Fact]
     public void Foreach_Over_Dictionary_And_View_Is_Allocation_Free()
     {
-        var d = new LockFreeSkipListDictionary<int, int>();
+        var d = new ConcurrentSkipListDictionary<int, int>();
         for (int i = 0; i < 16; i++) d[i] = i;
-        var view = d.SubMap(2, 12);   // create the view once
+        var view = d.GetViewBetween(2, 12);   // create the view once
 
         int sink = 0;
         long dictBytes = Measure(() => { foreach (var kv in d) sink += kv.Key; }, 50_000);
@@ -121,7 +121,7 @@ public class AllocationTests
     [Fact]
     public void Reference_Values_Survive_Concurrent_Churn()
     {
-        var d = new LockFreeSkipListDictionary<long, string>();
+        var d = new ConcurrentSkipListDictionary<long, string>();
         int threads = Math.Max(4, Environment.ProcessorCount);
         const int perThread = 40_000;
 
