@@ -52,35 +52,40 @@ Tested on **x64 and arm64** on every push — highly-parallel stress plus model-
 
 ## Benchmarks
 
-Many-core scaling, measured on `Standard_D64s_v5` — Intel Xeon 8370C (Ice Lake), **32 physical cores /
-64 vCPU, 2 NUMA nodes**, via the [`bench-sweep`](bench-sweep) harness (`<long,long>`, order 64, server GC).
-Throughput in **Mops/s, higher is better**. One machine, one session.
+**What's measured.** Throughput in **Mops/s — millions of operations per second, higher is better**.
+*N* threads hammer one shared dictionary pre-filled with the stated number of `<long,long>` keys; we count
+how many operations complete per second (best-of-N runs, server GC). An *operation* is:
+
+- **read** — a single `TryGetValue` (keys drawn so ~50% hit, ~50% miss);
+- **write** — a 50/50 mix of insert and remove;
+- **mixed** — half the threads read, half write.
+
+Measured on `Standard_D64s_v5` — Intel Xeon 8370C (Ice Lake), **32 physical cores / 64 vCPU, 2 NUMA
+nodes** — via the [`bench-sweep`](bench-sweep) harness (order 64). One machine, one session.
 
 **Scaling to 64 threads (1M keys):**
 
-| op | threads | skiplist | bptree | blink |
-|----|--------:|---------:|-------:|------:|
-| read  | 8 | 7.3 | 31.0 | 30.7 |
-|       | 32 | 31.8 | 102.3 | 111.7 |
-|       | 64 | 44.6 | **209.7** | 177.7 |
-| write | 32 | 14.1 | 59.2 | 58.4 |
-|       | 64 | 21.9 | 81.3 | **88.5** |
-| mixed | 64 | 28.7 | 118.4 | **121.8** |
+| op | threads | `ConcurrentSkipListDictionary` | `ConcurrentBTreeDictionary` |
+|----|--------:|-------------------------------:|----------------------------:|
+| read  | 8  | 7.3  | 31.0  |
+|       | 32 | 31.8 | 102.3 |
+|       | 64 | 44.6 | **209.7** |
+| write | 32 | 14.1 | 59.2  |
+|       | 64 | 21.9 | **81.3** |
+| mixed | 64 | 28.7 | **118.4** |
 
-The trees beat the skip list **~4–5×** at 64 threads; reads scale near-linearly through one socket.
+At 64 threads the B+ tree is **~4–5×** the skip list; its reads scale near-linearly through one socket.
 
-**Throughput vs dataset size (@64 threads, Mops/s)** and **memory footprint**:
+**Read throughput vs dataset size (@64 threads, Mops/s)** and **memory footprint:**
 
-| @64 threads | 1M | 10M | 100M | | bytes/entry @100M |
-|---|---:|---:|---:|---|---:|
-| read · bptree | 209.7 | 104.7 | 59.5 | **bptree** | **~24** |
-| read · skiplist | 44.6 | 18.6 | 11.0 | skiplist | ~80 |
-| read · blink | 177.7 | 98.8 | 58.1 | blink | ~146 |
+| | 1M | 10M | 100M | bytes/entry @100M |
+|---|---:|---:|---:|---:|
+| `ConcurrentBTreeDictionary` | **209.7** | **104.7** | **59.5** | **~24** |
+| `ConcurrentSkipListDictionary` | 44.6 | 18.6 | 11.0 | ~80 |
 
-`ConcurrentBTreeDictionary` is fastest on reads and packs near-optimally (16 B/entry is the raw payload).
-At 100M, write-heavy load, `BLinkTree` pulls ahead (it never restarts readers and does no merge) but at
-~6× the memory. Writes/mixed pay a ~20–26% penalty when threads span both NUMA nodes (the structures are
-NUMA-oblivious).
+Throughput drops with size for both (deeper structures, more cache/TLB misses), but the B+ tree keeps its
+lead and packs near-optimally (16 B/entry is the raw `<long,long>` payload). Writes/mixed pay a ~20–26%
+penalty when threads span both NUMA nodes (both structures are NUMA-oblivious).
 
 ## Status
 
