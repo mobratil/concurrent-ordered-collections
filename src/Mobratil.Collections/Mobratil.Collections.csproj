@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <Optimize>true</Optimize>
+    <!-- This project links only the two shippable types (B-link tree intentionally excluded). -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <RootNamespace>Mobratil.Collections</RootNamespace>
+    <AssemblyName>Mobratil.Collections</AssemblyName>
+
+    <!-- XML docs ship with the package; CS1591 (undocumented public member) is suppressed for now. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+
+    <!-- Package metadata -->
+    <PackageId>Mobratil.Collections</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Martin Obrátil</Authors>
+    <Description>Thread-safe, sorted, navigable dictionaries for .NET: a lock-free skip list (ConcurrentSkipListDictionary, a port of Doug Lea's ConcurrentSkipListMap) and an optimistic-lock-coupling B+ tree (ConcurrentBTreeDictionary). Linearizable point operations, weakly-consistent range views (GetViewBetween / Reverse) and navigable lookups (Ceiling/Floor/Higher/Lower). Validated on x64 and arm64.</Description>
+    <PackageTags>concurrent;thread-safe;lock-free;sorted;navigable;dictionary;skiplist;btree;collections;ordered</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/mobratil/concurrent-ordered-collections</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/mobratil/concurrent-ordered-collections</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The two shippable structures + one shared (internal) striped counter. -->
+    <Compile Include="..\LockFreeSkipList\ConcurrentSkipListDictionary.cs" Link="ConcurrentSkipListDictionary.cs" />
+    <Compile Include="..\LockFreeSkipList\StripedCounter.cs" Link="StripedCounter.cs" />
+    <Compile Include="..\BPlusTree\ConcurrentBTreeDictionary.cs" Link="ConcurrentBTreeDictionary.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

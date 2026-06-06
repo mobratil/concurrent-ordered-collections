@@ -1,0 +1,16 @@
+Mobratil.Collections
+Copyright (c) 2026 Martin Obrátil — MIT License (see LICENSE)
+
+------------------------------------------------------------------------
+Third-party attribution
+------------------------------------------------------------------------
+
+ConcurrentSkipListDictionary<TKey,TValue> is a C# port of Doug Lea's
+java.util.concurrent.ConcurrentSkipListMap (the CAS-based, lock-free skip
+list algorithm). That original work was written by Doug Lea with assistance
+from members of JCP JSR-166 and released to the public domain, as explained
+at http://creativecommons.org/publicdomain/zero/1.0/
+
+This port adapts the algorithm to the CLR (fully generic, no boxing of keys
+or values) but the design and correctness arguments are Lea's. The port and
+all other code in this repository are licensed under the MIT License.

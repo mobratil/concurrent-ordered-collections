@@ -67,3 +67,20 @@ jobs:
           dotnet test tests/LockFreeSkipList.Tests/LockFreeSkipList.Tests.csproj
           -c Release --no-build
           --filter "FullyQualifiedName!~BLinkTree"
+
+  pack:
+    name: pack (nupkg artifact)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: pack Mobratil.Collections
+        run: dotnet pack src/Mobratil.Collections/Mobratil.Collections.csproj -c Release -o ./artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: artifacts/*nupkg
