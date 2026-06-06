@@ -45,6 +45,12 @@ mutation, always sorted, but not a point-in-time snapshot (like `ConcurrentDicti
 Tested on **x64 and arm64** on every push — highly-parallel stress plus model-based linearizability
 (checked against a `SortedDictionary` oracle). Strong evidence, not a formal proof.
 
+## Benchmarks
+
+Many-core scaling on a 64-vCPU (32-core, 2-NUMA) Azure box — the trees beat the skip list ~4–5× at
+64 threads, and `ConcurrentBTreeDictionary` packs ~24 bytes/entry. Tables in
+[docs/BENCHMARKS.md](https://github.com/mobratil/concurrent-ordered-collections/blob/main/docs/BENCHMARKS.md).
+
 ## Status
 
 `0.1.0`, pre-1.0 — the API may still move. (An experimental B-link tree lives in the repo for
