@@ -23,8 +23,8 @@
     <PackageTags>concurrent;thread-safe;lock-free;sorted;navigable;dictionary;skiplist;btree;collections;ordered</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageProjectUrl>https://github.com/mobratil/concurrent-ordered-collections</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/mobratil/concurrent-ordered-collections</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/mobratil/collections</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/mobratil/collections</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>

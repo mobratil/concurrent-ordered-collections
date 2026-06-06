@@ -3,7 +3,7 @@
 Thread-safe **sorted, navigable** dictionaries for .NET — the ordered, range-queryable
 counterparts to `ConcurrentDictionary`.
 
-[![ci](https://github.com/mobratil/concurrent-ordered-collections/actions/workflows/ci.yml/badge.svg)](https://github.com/mobratil/concurrent-ordered-collections/actions/workflows/ci.yml)
+[![ci](https://github.com/mobratil/collections/actions/workflows/ci.yml/badge.svg)](https://github.com/mobratil/collections/actions/workflows/ci.yml)
 
 > ⚠️ **Vibe-coded.** This library was designed and implemented largely through AI-assisted ("vibe")
 > coding. It is tested hard — highly-parallel stress and model-based linearizability on both x64 and
@@ -43,7 +43,7 @@ Point operations (get/add/remove, the indexer, `GetOrAdd`/`AddOrUpdate`, and the
 **linearizable**. Enumeration and range views are **weakly consistent** — never throw on concurrent
 mutation, always sorted, but not a point-in-time snapshot (like `ConcurrentDictionary`'s enumerator).
 `Count` is weakly consistent and non-negative. Details:
-[docs/CONCURRENCY.md](https://github.com/mobratil/concurrent-ordered-collections/blob/main/docs/CONCURRENCY.md).
+[docs/CONCURRENCY.md](https://github.com/mobratil/collections/blob/main/docs/CONCURRENCY.md).
 
 ## Correctness
 
