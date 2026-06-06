@@ -1,0 +1,72 @@
+name: release
+
+# Publishes Mobratil.Collections to nuget.org when a version tag (e.g. v0.1.0) is pushed.
+#
+# ONE-TIME SETUP (manual, by the repo owner):
+#   1. Create a NuGet API key:  https://www.nuget.org/account/apikeys
+#        Scope: "Push"; Glob pattern: Mobratil.*   (so it can reserve the package id)
+#   2. Add it as a repository secret named NUGET_API_KEY:
+#        gh secret set NUGET_API_KEY --repo mobratil/collections
+#        (or GitHub → Settings → Secrets and variables → Actions → New repository secret)
+#
+# TO PUBLISH:
+#   git tag v0.1.0 && git push origin v0.1.0
+# (or run this workflow manually from the Actions tab, supplying the version)
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.1.0)'
+        required: true
+
+permissions:
+  contents: write   # to create the GitHub Release
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: resolve version
+        id: ver
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "v=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "v=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Gate: never publish a build that doesn't pass.
+      - name: build + test (x64)
+        env:
+          STRESS_SECONDS: '1'
+          LIN_ROUNDS: '300'
+        run: |
+          dotnet build tests/LockFreeSkipList.Tests/LockFreeSkipList.Tests.csproj -c Release
+          dotnet test tests/LockFreeSkipList.Tests/LockFreeSkipList.Tests.csproj -c Release --no-build --filter "FullyQualifiedName!~BLinkTree"
+
+      - name: pack
+        run: dotnet pack src/Mobratil.Collections/Mobratil.Collections.csproj -c Release -p:Version=${{ steps.ver.outputs.v }} -o ./artifacts
+
+      - name: push to nuget.org
+        run: >
+          dotnet nuget push "./artifacts/*.nupkg"
+          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      - name: github release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./artifacts/*.nupkg
+          generate_release_notes: true
