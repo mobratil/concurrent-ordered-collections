@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace Ordered;
@@ -56,8 +57,21 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
             return (v & 1L) == 0;
         }
 
+        // On weak-memory hardware (ARM/Apple silicon) an acquire-load alone does NOT stop the
+        // optimistic DATA reads that precede this check (Children[ci], Keys/Values, leaf links)
+        // from being reordered AFTER the version read — so we could validate a node as unchanged
+        // yet have read a child slot a concurrent merge already nulled (NRE) or a torn key/value.
+        // A LoadLoad fence before the version read closes the seqlock. x86/x64 is TSO (loads never
+        // reorder with loads), so the fence is gated off there and adds zero cost on that path.
+        private static readonly bool FenceBeforeValidate =
+            RuntimeInformation.ProcessArchitecture is Architecture.Arm64 or Architecture.Arm;
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal bool Validate(long v) => Volatile.Read(ref Version) == v;   // unchanged since we read v
+        internal bool Validate(long v)
+        {
+            if (FenceBeforeValidate) Interlocked.MemoryBarrier();
+            return Volatile.Read(ref Version) == v;                          // unchanged since we read v
+        }
 
         // Optimistically upgrade to a write lock: succeeds only if the version is still `observed`
         // (i.e. the node hasn't been touched since we read it during the optimistic descent).
@@ -847,32 +861,55 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
         {
             if (!TryDescendToLeaf(key, out var leaf, out long v)) continue;
             int cnt = Volatile.Read(ref leaf.Count);
+            bool found;
+            KeyValuePair<TKey, TValue> kv;
             if (!lower)   // ceiling / higher : first key >= key (or > key)
             {
                 int i = inclusive ? LowerBound(leaf.Keys, cnt, key) : ChildIndex(leaf.Keys, cnt, key);
                 if (i < cnt)
                 {
-                    var kv = new KeyValuePair<TKey, TValue>(leaf.Keys[i], leaf.Values[i]);
+                    kv = new KeyValuePair<TKey, TValue>(leaf.Keys[i], leaf.Values[i]);
                     if (!leaf.Validate(v)) continue;
-                    entry = kv; return true;
+                    found = true;
                 }
-                Leaf? nx = leaf.Next;
-                if (!leaf.Validate(v)) continue;
-                return TryFirstOfChain(nx, out entry);
+                else
+                {
+                    Leaf? nx = leaf.Next;
+                    if (!leaf.Validate(v)) continue;
+                    found = TryFirstOfChain(nx, out kv);
+                }
             }
             else          // floor / lower : last key <= key (or < key)
             {
                 int i = (inclusive ? ChildIndex(leaf.Keys, cnt, key) : LowerBound(leaf.Keys, cnt, key)) - 1;
                 if (i >= 0)
                 {
-                    var kv = new KeyValuePair<TKey, TValue>(leaf.Keys[i], leaf.Values[i]);
+                    kv = new KeyValuePair<TKey, TValue>(leaf.Keys[i], leaf.Values[i]);
                     if (!leaf.Validate(v)) continue;
-                    entry = kv; return true;
+                    found = true;
                 }
-                Leaf? pv = leaf.Prev;
-                if (!leaf.Validate(v)) continue;
-                return TryLastOfChain(pv, out entry);
+                else
+                {
+                    Leaf? pv = leaf.Prev;
+                    if (!leaf.Validate(v)) continue;
+                    found = TryLastOfChain(pv, out kv);
+                }
             }
+
+            // Side-condition guard. An optimistic descent that races a concurrent split or
+            // merge can land relative to the wrong leaf and yield a neighbor on the WRONG side
+            // of `key` (e.g. lower(k) returning a key >= k). The relational contract is purely
+            // ordinal, so re-check the side and retry on violation. This converges: under
+            // quiescence the search is exact, so a retry eventually returns a validated result.
+            if (found)
+            {
+                int c = _cmp.Compare(kv.Key, key);
+                bool ok = lower ? (inclusive ? c <= 0 : c < 0)
+                                : (inclusive ? c >= 0 : c > 0);
+                if (!ok) continue;
+            }
+            entry = found ? kv : default;
+            return found;
         }
     }
 
@@ -959,7 +996,7 @@ public sealed class ConcurrentBPlusTree<TKey, TValue>
             Array.Copy(leaf.Values, bufV, n);
             next = Volatile.Read(ref leaf.Next);
             prev = Volatile.Read(ref leaf.Prev);
-            if (leaf.Validate(v)) return n;
+            if (leaf.Validate(v)) return n;   // Validate carries the LoadLoad fence (seqlock read)
         }
     }
 
