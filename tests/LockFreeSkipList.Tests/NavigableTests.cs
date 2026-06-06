@@ -123,18 +123,9 @@ public class NavigableTests
         Assert.Equal(10, d.GetOrAdd("c", _ => 10)); // adds
         Assert.Equal(1, d.GetOrAdd("a", _ => 999)); // present wins
 
-        Assert.True(d.ComputeIfPresent("a", (_, v) => v + 100, out var nv));
-        Assert.Equal(101, nv);
-        Assert.Equal(101, d["a"]);
-        Assert.False(d.ComputeIfPresent("zzz", (_, v) => v, out _));
-
         Assert.Equal(2, d.AddOrUpdate("b", 5, (_, old) => old));   // present -> keep old via remap
         Assert.Equal(7, d.AddOrUpdate("new", 7, (_, old) => old + 7)); // absent -> store value
         Assert.Equal(7, d["new"]);
-
-        d.ReplaceAll((_, v) => v * 2);
-        Assert.Equal(202, d["a"]); // 101 * 2
-        Assert.Equal(4, d["b"]);   // 2 * 2
     }
 
     [Fact]

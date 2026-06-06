@@ -1021,36 +1021,6 @@ public sealed class ConcurrentSkipListDictionary<TKey, TValue>
     }
 
 
-    /// <summary>If the key is present, atomically recomputes its value from the current one and stores the
-    /// result; returns <see langword="false"/> if the key is absent. A returned value cannot signal removal
-    /// (there is no null sentinel for value types) — use <see cref="TryRemove(TKey, out TValue)"/> for that.</summary>
-    public bool ComputeIfPresent(TKey key, Func<TKey, TValue, TValue> remappingFunction, out TValue newValue)
-    {
-        ArgumentNullException.ThrowIfNull(remappingFunction);
-        for (; ; )
-        {
-            if (!DoGet(key, out var current)) { newValue = default!; return false; }
-            var computed = remappingFunction(key, current);
-            if (DoReplace(key, computed, current)) { newValue = computed; return true; }
-        }
-    }
-
-    /// <summary>Replaces every value with <paramref name="transform"/>(key, currentValue). Best-effort over a
-    /// snapshot of the keys; concurrent inserts after the snapshot are not visited.</summary>
-    public void ReplaceAll(Func<TKey, TValue, TValue> transform)
-    {
-        ArgumentNullException.ThrowIfNull(transform);
-        foreach (var kv in this)   // lazy enumeration — no Keys snapshot list
-        {
-            var key = kv.Key;
-            for (; ; )
-            {
-                if (!DoGet(key, out var current)) break;       // removed meanwhile
-                if (DoReplace(key, transform(key, current), current)) break;
-            }
-        }
-    }
-
     // =====================================================================
     //  NavigableMap views (live, range-restricted / reversed sub-dictionaries)
     // =====================================================================

@@ -111,7 +111,6 @@ public class ConcurrentBPlusTreeParityTests
 
         Assert.Equal(5, d.GetOrAdd("c", _ => 5));
         Assert.Equal(5, d.GetOrAdd("c", _ => 99));
-        Assert.True(d.ComputeIfPresent("c", (_, v) => v + 1, out var nv) && nv == 6);
         Assert.Equal(100, d.AddOrUpdate("d", 100, (_, v) => v + 1));
         Assert.Equal(101, d.AddOrUpdate("d", 100, (_, v) => v + 1));
         Assert.Equal(7, d.AddOrUpdate("e", 7, (_, a) => a + 7));

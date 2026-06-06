@@ -853,15 +853,11 @@ public sealed class BLinkTree<TKey, TValue> : IDictionary<TKey, TValue>, IReadOn
     { for (; ; ) { if (TryGetValue(key, out var v)) return v; if (TryAdd(key, value)) return value; } }
     public TValue GetOrAdd(TKey key, Func<TKey, TValue> valueFactory)
     { for (; ; ) { if (TryGetValue(key, out var v)) return v; var nv = valueFactory(key); if (TryAdd(key, nv)) return nv; } }
-    public bool ComputeIfPresent(TKey key, Func<TKey, TValue, TValue> remappingFunction, out TValue newValue)
-    { for (; ; ) { if (!TryGetValue(key, out var cur)) { newValue = default!; return false; } var nv = remappingFunction(key, cur); if (DoReplace(key, nv, true, cur)) { newValue = nv; return true; } } }
     public TValue AddOrUpdate(TKey key, TValue addValue, Func<TKey, TValue, TValue> updateValueFactory)
     { for (; ; ) { if (TryGetValue(key, out var cur)) { var nv = updateValueFactory(key, cur); if (DoReplace(key, nv, true, cur)) return nv; } else if (TryAdd(key, addValue)) return addValue; } }
     public TValue AddOrUpdate(TKey key, Func<TKey, TValue> addValueFactory, Func<TKey, TValue, TValue> updateValueFactory)
     { for (; ; ) { if (TryGetValue(key, out var cur)) { var nv = updateValueFactory(key, cur); if (DoReplace(key, nv, true, cur)) return nv; } else { var add = addValueFactory(key); if (TryAdd(key, add)) return add; } } }
     public void AddRange(IEnumerable<KeyValuePair<TKey, TValue>> items) { foreach (var kv in items) this[kv.Key] = kv.Value; }
-    public void ReplaceAll(Func<TKey, TValue, TValue> transform)
-    { foreach (var kv in this) for (; ; ) { if (!TryGetValue(kv.Key, out var cur)) break; if (DoReplace(kv.Key, transform(kv.Key, cur), true, cur)) break; } }
 
     // ---- IDictionary / ICollection ----
     public void Add(TKey key, TValue value) { if (!TryAdd(key, value)) throw new ArgumentException($"An item with the same key already exists. Key: {key}", nameof(key)); }

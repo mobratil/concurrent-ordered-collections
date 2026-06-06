@@ -8,7 +8,7 @@ dictionaries; the ordered, range-queryable counterparts to `ConcurrentDictionary
 > ⚠️ **Vibe-coded.** This library was designed and implemented largely through AI-assisted ("vibe")
 > coding. It is tested hard — highly-parallel stress and model-based linearizability on both x64 and
 > arm64, and several real concurrency bugs were found and fixed that way — but it has **not** had a
-> line-by-line human audit. It's `0.1.0`; treat it accordingly.
+> line-by-line human audit. It's early (0.1.x); treat it accordingly.
 
 - `ConcurrentSkipListDictionary<TKey,TValue>` — lock-free skip list (a port of Doug Lea's `ConcurrentSkipListMap`).
 - `ConcurrentBTreeDictionary<TKey,TValue>` — optimistic-lock-coupling B+ tree (compact, high read throughput).
@@ -89,7 +89,7 @@ penalty when threads span both NUMA nodes (both structures are NUMA-oblivious).
 
 ## Status
 
-`0.1.0`, pre-1.0 — the API may still move. (An experimental B-link tree lives in the repo for
+Pre-1.0 (0.1.x) — the API may still move. (An experimental B-link tree lives in the repo for
 benchmarking and is not part of the package.)
 
 ## License

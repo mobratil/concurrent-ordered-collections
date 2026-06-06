@@ -1067,16 +1067,6 @@ public sealed class ConcurrentBTreeDictionary<TKey, TValue>
     }
 
 
-    public bool ComputeIfPresent(TKey key, Func<TKey, TValue, TValue> remappingFunction, out TValue newValue)
-    {
-        for (; ; )
-        {
-            if (!TryGetValue(key, out var cur)) { newValue = default!; return false; }
-            var nv = remappingFunction(key, cur);
-            if (DoReplace(key, nv, true, cur)) { newValue = nv; return true; }
-        }
-    }
-
     public TValue AddOrUpdate(TKey key, TValue addValue, Func<TKey, TValue, TValue> updateValueFactory)
     {
         for (; ; )
@@ -1106,16 +1096,6 @@ public sealed class ConcurrentBTreeDictionary<TKey, TValue>
     public void AddRange(IEnumerable<KeyValuePair<TKey, TValue>> items)
     {
         foreach (var kv in items) this[kv.Key] = kv.Value;
-    }
-
-    public void ReplaceAll(Func<TKey, TValue, TValue> transform)
-    {
-        foreach (var kv in this)
-            for (; ; )
-            {
-                if (!TryGetValue(kv.Key, out var cur)) break;
-                if (DoReplace(kv.Key, transform(kv.Key, cur), true, cur)) break;
-            }
     }
 
     // =====================================================================
