@@ -208,6 +208,10 @@ static class Soak
         for (long i = 0; i < A; i++) d[i * G] = i * G;     // sparse anchors — never removed
         using var stop = new CancellationTokenSource();
         long scans = 0; var r0 = d.Rebal();
+        // self-test: with SOAK_INJECT_GAP=1, delete one never-removed anchor mid-slice — the gap
+        // check above MUST then fail, naming that exact key. Proves the conservation check isn't vacuous.
+        if (Environment.GetEnvironmentVariable("SOAK_INJECT_GAP") == "1")
+            Task.Run(() => { Thread.Sleep(800); d.TryRemove((A / 2) * G, out _); });
         // each thread owns a disjoint shard of the NON-anchor keys and oscillates it
         // fill -> drain, driving its leaves across the split/merge thresholds repeatedly.
         var writers = Spawn(Threads, tid =>
@@ -222,17 +226,21 @@ static class Soak
         });
         var checker = Spawn(2, _ =>
         {
+            var seen = new bool[(int)A];          // reusable presence map over the never-removed anchors
             while (!stop.IsCancellationRequested)
             {
-                long prev = long.MinValue, anchors = 0;
+                Array.Clear(seen);
+                long prev = long.MinValue;
                 foreach (var kv in d.All())
                 {
                     if (kv.Key <= prev) { Fail($"boundary {n}: scan order/dup {kv.Key} after {prev}"); return; }
                     if (kv.Value != kv.Key) { Fail($"boundary {n}: torn {kv.Key}->{kv.Value}"); return; }
                     prev = kv.Key;
-                    if (kv.Key % G == 0) anchors++;                    // multiple of G => anchor
+                    if (kv.Key % G == 0) seen[(int)(kv.Key / G)] = true;   // mark this never-removed anchor present
                 }
-                if (anchors != A) { Fail($"boundary {n}: anchors lost/dup saw {anchors} expected {A}"); return; }
+                // explicit GAP check: EVERY never-removed key must have appeared — report the exact one if not.
+                for (int i = 0; i < A; i++)
+                    if (!seen[i]) { Fail($"boundary {n}: MISSING never-removed key {(long)i * G} (value should be {(long)i * G})"); return; }
                 Interlocked.Increment(ref scans);
             }
         });
