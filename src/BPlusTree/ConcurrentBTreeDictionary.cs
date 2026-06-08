@@ -105,6 +105,8 @@ public sealed class ConcurrentBTreeDictionary<TKey, TValue>
 
     private volatile Node _root;
     private readonly StripedCounter _count = new();
+    internal long _splits, _merges;   // diagnostic counters (leaf split / leaf merge) — read by the soak harness
+    internal (long splits, long merges) RebalanceCounts => (Volatile.Read(ref _splits), Volatile.Read(ref _merges));
 
     /// <param name="order">Node fan-out (max keys per node). Default 64.</param>
     /// <param name="comparer">Key ordering; defaults to <see cref="Comparer{T}.Default"/>.</param>
@@ -373,6 +375,7 @@ public sealed class ConcurrentBTreeDictionary<TKey, TValue>
 
     private void SplitLeaf(Leaf leaf, out TKey sep, out Node rightNode)
     {
+        Interlocked.Increment(ref _splits);
         int mid = (_max + 1) / 2;
         int rc = leaf.Count - mid;
         var right = NewLeaf();
@@ -567,6 +570,7 @@ public sealed class ConcurrentBTreeDictionary<TKey, TValue>
             Volatile.Write(ref left.Next, rnext);               // splice right out of the forward chain
             if (rnext != null) Volatile.Write(ref rnext.Prev, left);
             left.Count = lc + rc;                               // publish count LAST (readers re-validate version)
+            Interlocked.Increment(ref _merges);
             // (right keeps its entries + Next/Prev intact: a scan that already followed left.Next==right
             //  still reads right's keys; dedup tolerates the transient overlap with left.)
 
@@ -666,6 +670,7 @@ public sealed class ConcurrentBTreeDictionary<TKey, TValue>
                 Volatile.Write(ref left.Next, rnext);
                 if (rnext != null) Volatile.Write(ref rnext.Prev, left);
                 left.Count = lc + rc;
+                Interlocked.Increment(ref _merges);
                 RemoveChild(P, hi);                             // P.Count--
                 survivorUnderfull = left.Count < _min;         // still underfull? caller loops another merge
                 if (rnext != null) rnext.WriteUnlock();

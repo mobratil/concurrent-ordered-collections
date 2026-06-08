@@ -120,6 +120,7 @@ static class Soak
             }
         });
         // online checker: full scan must stay sorted+value-consistent and keep ALL stable keys
+        long scans = 0; var r0 = d.Rebal();
         var checker = Spawn(2, _ =>
         {
             while (!stop.IsCancellationRequested)
@@ -133,11 +134,14 @@ static class Soak
                     if (kv.Key >= hotHi) inStable++;
                 }
                 if (inStable != stable) { Fail($"hot {n} {frac}: stable lost/dup saw {inStable} expected {stable}"); return; }
+                Interlocked.Increment(ref scans);
             }
         });
         Thread.Sleep(Slice * 1000);
         stop.Cancel(); Task.WaitAll(writers.Concat(checker).ToArray());
 
+        var r1 = d.Rebal();
+        Log($"     hot n={n} frac={frac}: splits={r1.splits - r0.splits} merges={r1.merges - r0.merges} full-scans={scans} (during the slice)");
         // quiescent reconcile
         Quiesce(d, $"hot {n} {frac}", expectStableLo: hotHi, expectStableHi: n);
     }
@@ -186,27 +190,34 @@ static class Soak
     }
 
     // =====================================================================
-    //  Scenario 2b: BOUNDARY HOP — the sharpest leaf-transition test. Stable anchor
-    //  keys (the EVENS of a dense range) are never removed; the ODDS interleaved
-    //  between them are churned hard, so the leaves holding the anchors split and
-    //  merge constantly and the anchors sit right on the shifting boundaries. Every
-    //  full enumeration must still yield all S anchors exactly once — if a leaf-to-leaf
-    //  hop ever dropped a key during a concurrent split/merge, the anchor count breaks.
+    //  Scenario 2b: BOUNDARY HOP — the sharpest leaf-transition test. SPARSE anchor keys
+    //  (about one per leaf, never removed) are surrounded by non-anchor keys that are
+    //  OSCILLATED fill<->drain, which forces an anchor's leaf to split while filling and
+    //  merge while draining, continuously. A scanner hops across those actively
+    //  rebalancing boundaries while asserting every anchor still appears exactly once, so
+    //  if a leaf-to-leaf hop ever dropped a key mid split/merge, the anchor count breaks.
+    //  (The earlier dense-EVENS design was vacuous — pinned 50%-dense anchors held every
+    //   leaf strictly between order/3 and order, so it measured ZERO splits/merges.)
     // =====================================================================
     static void BoundaryHop(Func<IMap> mk, long n)
     {
         var d = mk();
-        long S = Math.Min(8000, Math.Max(64, n / 100));   // # stable even anchors
-        long span = 2 * S;                                 // dense key range [0, span)
-        for (long a = 0; a < span; a += 2) d[a] = a;       // even anchors — never removed
+        const long G = 64;                                 // anchor spacing (~1 anchor per leaf)
+        long A = Math.Min(4000, Math.Max(16, n / 1000));   // # sparse anchors
+        long span = A * G;                                 // key range [0, span)
+        for (long i = 0; i < A; i++) d[i * G] = i * G;     // sparse anchors — never removed
         using var stop = new CancellationTokenSource();
+        long scans = 0; var r0 = d.Rebal();
+        // each thread owns a disjoint shard of the NON-anchor keys and oscillates it
+        // fill -> drain, driving its leaves across the split/merge thresholds repeatedly.
         var writers = Spawn(Threads, tid =>
         {
-            var rng = new Random(tid * 22695477 + 5);
             while (!stop.IsCancellationRequested)
             {
-                long odd = 1 + 2 * (long)(rng.NextDouble() * S);   // an odd key in [1, span)
-                if ((rng.Next() & 1) == 0) d[odd] = odd; else d.TryRemove(odd, out _);
+                for (long k = tid; k < span && !stop.IsCancellationRequested; k += Threads)
+                    if (k % G != 0) d[k] = k;                          // FILL  -> splits
+                for (long k = tid; k < span && !stop.IsCancellationRequested; k += Threads)
+                    if (k % G != 0) d.TryRemove(k, out _);             // DRAIN -> merges
             }
         });
         var checker = Spawn(2, _ =>
@@ -219,13 +230,16 @@ static class Soak
                     if (kv.Key <= prev) { Fail($"boundary {n}: scan order/dup {kv.Key} after {prev}"); return; }
                     if (kv.Value != kv.Key) { Fail($"boundary {n}: torn {kv.Key}->{kv.Value}"); return; }
                     prev = kv.Key;
-                    if ((kv.Key & 1) == 0) anchors++;          // even => stable anchor
+                    if (kv.Key % G == 0) anchors++;                    // multiple of G => anchor
                 }
-                if (anchors != S) { Fail($"boundary {n}: anchors lost/dup saw {anchors} expected {S}"); return; }
+                if (anchors != A) { Fail($"boundary {n}: anchors lost/dup saw {anchors} expected {A}"); return; }
+                Interlocked.Increment(ref scans);
             }
         });
         Thread.Sleep(Slice * 1000);
         stop.Cancel(); Task.WaitAll(writers.Concat(checker).ToArray());
+        var r1 = d.Rebal();
+        Log($"     boundary n={n}: splits={r1.splits - r0.splits} merges={r1.merges - r0.merges} full-scans={scans} (during the slice)");
         d.Validate();
         long aSeen = 0, prevq = long.MinValue;
         foreach (var kv in d.All())
@@ -233,9 +247,9 @@ static class Soak
             if (kv.Key <= prevq) { Fail($"boundary {n}: quiescent order/dup {kv.Key}"); return; }
             if (kv.Value != kv.Key) { Fail($"boundary {n}: quiescent torn {kv.Key}->{kv.Value}"); return; }
             prevq = kv.Key;
-            if ((kv.Key & 1) == 0) aSeen++;
+            if (kv.Key % G == 0) aSeen++;
         }
-        if (aSeen != S) Fail($"boundary {n}: quiescent anchors {aSeen} != {S}");
+        if (aSeen != A) Fail($"boundary {n}: quiescent anchors {aSeen} != {A}");
     }
 
     // =====================================================================
@@ -360,6 +374,7 @@ interface IMap
     IEnumerable<KeyValuePair<long, long>> All();
     IEnumerable<KeyValuePair<long, long>> ViewBetween(long lo, long hi);
     void Validate();
+    (long splits, long merges) Rebal();
 }
 
 sealed class SkipMap : IMap
@@ -377,6 +392,7 @@ sealed class SkipMap : IMap
     public IEnumerable<KeyValuePair<long, long>> All() => m;
     public IEnumerable<KeyValuePair<long, long>> ViewBetween(long lo, long hi) => m.GetViewBetween(lo, hi);
     public void Validate() { /* skip list has no structural validator */ }
+    public (long splits, long merges) Rebal() => (0, 0);
 }
 
 sealed class BTreeMap : IMap
@@ -395,4 +411,5 @@ sealed class BTreeMap : IMap
     public IEnumerable<KeyValuePair<long, long>> All() => m;
     public IEnumerable<KeyValuePair<long, long>> ViewBetween(long lo, long hi) => m.GetViewBetween(lo, hi);
     public void Validate() => m.Validate();
+    public (long splits, long merges) Rebal() => m.RebalanceCounts;
 }

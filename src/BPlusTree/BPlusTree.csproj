@@ -8,4 +8,8 @@
     <Optimize>true</Optimize>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Soak" />
+  </ItemGroup>
+
 </Project>
