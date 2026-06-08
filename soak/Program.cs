@@ -18,7 +18,8 @@ using Mobratil.Collections;
 //    SOAK_SECONDS    total run time, seconds            (default 120)
 //    SOAK_SLICE      seconds per scenario slice         (default 20)
 //    SOAK_THREADS    writer threads (default 2x cores)
-//    SOAK_SIZES      csv of collection sizes            (default 100000,1000000)
+//    SOAK_SIZES      csv of collection sizes            (default 10,100,1000,10000,100000,1000000)
+//                    tiny sizes (1-2 leaves) stress single-node latch contention + root growth/collapse
 //    SOAK_ORDER      bptree node order                  (default 64)
 //    SOAK_STRUCT     skiplist | bptree | both           (default both)
 //  Value invariant everywhere: value == key, so any torn / cross-wired read is caught.
@@ -40,7 +41,7 @@ static class Soak
     static int Main()
     {
         int totalSec = Env("SOAK_SECONDS", 120);
-        var sizes = (Environment.GetEnvironmentVariable("SOAK_SIZES") ?? "100000,1000000")
+        var sizes = (Environment.GetEnvironmentVariable("SOAK_SIZES") ?? "10,100,1000,10000,100000,1000000")
                     .Split(',').Select(s => long.Parse(s.Trim())).ToArray();
         var structs = (Environment.GetEnvironmentVariable("SOAK_STRUCT") ?? "both") switch
         {
